@@ -38,7 +38,8 @@ def lookup_movie(term, fields):
     for movie in response.json():
         result = {}
         for field in fields:
-            result[field] = movie[field]
+            if field in movie:
+                result[field] = movie[field]
         results.append(result)
 
     return json.dumps(results)
@@ -113,7 +114,7 @@ initMessages = [
     },
     {
         "role": "assistant",
-        "content": "RES~[{'title': 'Iron Man', 'year': 2008, 'tmdbId': 1726}, {'title': 'Tetsuo: The Iron Man', 'year': 1989, 'tmdbId': 41428}]"
+        "content": "[RES~[{'title': 'Iron Man', 'year': 2008, 'tmdbId': 1726}, {'title': 'Tetsuo: The Iron Man', 'year': 1989, 'tmdbId': 41428}]]"
     },
     {
         "role": "assistant",
@@ -126,6 +127,23 @@ initMessages = [
     {
         "role": "assistant",
         "content": "[CMD~RADARR~movie_post~{'tmdbId':1726,'title':'Iron Man','year':2008}][REPLY~Iron Man (2008) has been added! If you're interested, I can help you explore more of the Marvel Cinematic Universe movies.]"
+    },
+
+    {
+        "role": "user",
+        "content": "Is iron man 2008 on the server? What about the second?"
+    },
+    {
+        "role": "assistant",
+        "content": "[CMDRET~RADARR~movie_lookup~Iron Man 1~title,year,tmdbId,hasFile,sizeOnDisk,id][CMDRET~RADARR~movie_lookup~Iron Man 2~title,year,tmdbId,hasFile,sizeOnDisk,id]"
+    },
+    {
+        "role": "assistant",
+        "content": "[RES~[{'title': 'Iron Man', 'year': 2008, 'tmdbId': 1726, 'hasFile': true, 'sizeOnDisk': 10116665158, 'id': 4}, {'title': 'Tetsuo: The Iron Man', 'year': 1989, 'tmdbId': 41428, hasFile': false, 'sizeOnDisk': 0}]][RES~[{'title': 'Iron Man 2', 'year': 2010, 'tmdbId': 10138, 'hasFile': false, 'sizeOnDisk': 0, 'id': 6}]][RES~[{'title': 'Iron Man 3', 'year': 2013, 'tmdbId': 68721, 'hasFile': false, 'sizeOnDisk': 0}]]"
+    },
+    {
+        "role": "assistant",
+        "content": "[REPLY~Iron Man (2008) is already on your server and takes up 9.4GB of space. Iron Man 2 has been queued for download but isn't available just yet. Iron Man 3 hasn't been added to your collection, let me know if you'd like me to fetch it for you!]"
     },
 
     {
