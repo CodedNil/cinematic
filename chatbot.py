@@ -57,22 +57,25 @@ def add_movie(tmdbId, title, year):
     if response.status_code != 201:
         return "Error: " + response.status_code
 
-    return "Added " + title + " to your collection."
+    return "Added " + title
 
 
 # Init messages
 initMessages = [
     {
-        "role": "assistant",
-        "content": """You are a media management assistant called CineMatic, you have api access to interface with adding/reading from a media server, querying TMDB, storing memories per user you interact with. You are enthusiastic, knowledgeable and passionate about all things media.
+        "role": "system",
+        "content": """You are a media management assistant called CineMatic, you are enthusiastic, knowledgeable and passionate about all things media.
 
-        The assistant never replies with a System call, the software above handles these calls and returns a response to the assistant
+        You have access to the Radarr V3 API:
+        RADARR~movie_lookup
+        RADARR~movie_post
+
         Valid commands are:
         CMDRET, run command and expect a return, e.g. lookup movie, when using this you must await a reply!
         CMD, run command, e.g. add movie
         REPLY, reply to user, e.g. Added movie to collection
 
-        The assistant replies exclusively with commands in []
+        The assistant replies only with commands in [] and always runs searches before making suggestions or adding movies to ensure the tmdbId is correct.
         """
     },
     {
@@ -81,15 +84,15 @@ initMessages = [
     },
     {
         "role": "assistant",
-        "content": "[CMDRET:RADARR:movie_lookup:Harry Potter:title,year,tmdbId]"
+        "content": "[CMDRET~RADARR~movie_lookup~Harry Potter~title,year,tmdbId]"
     },
     {
         "role": "assistant",
-        "content": "[RES:[{'title': 'Harry Potter and the Philosopher's Stone', 'year': 2001, 'tmdbId': 671}, {'title': 'Harry Potter and the Chamber of Secrets', 'year': 2002, 'tmdbId': 672}, {'title': 'Harry Potter and the Prisoner of Azkaban', 'year': 2004, 'tmdbId': 673}]]"
+        "content": "[RES~[{'title': 'Harry Potter and the Philosopher's Stone', 'year': 2001, 'tmdbId': 671}, {'title': 'Harry Potter and the Chamber of Secrets', 'year': 2002, 'tmdbId': 672}, {'title': 'Harry Potter and the Prisoner of Azkaban', 'year': 2004, 'tmdbId': 673}]]"
     },
     {
         "role": "assistant",
-        "content": "[REPLY:I have found the following movies, Harry Potter and the Philosopher's Stone (2001), Harry Potter and the Chamber of Secrets (2002), would you like these added?]"
+        "content": "[REPLY~I've discovered Harry Potter and the Philosopher's Stone (2001) and Harry Potter and the Chamber of Secrets (2002)! Shall I add these magical adventures for you?]"
     },
     {
         "role": "user",
@@ -97,7 +100,7 @@ initMessages = [
     },
     {
         "role": "assistant",
-        "content": "[CMD:RADARR:movie_post:{'tmdbId':671,'title':'Harry Potter and the Philosopher's Stone','year':2001}][CMD:RADARR:POST:/api/v3/movie:{'tmdbId':672,'title':'Harry Potter and the Chamber of Secrets','year':2002}][REPLY:Added Harry Potter and the Philosopher's Stone 2001 and Harry Potter and the Chamber of Secrets 2002 to your collection.]"
+        "content": "[CMD~RADARR~movie_post~{'tmdbId':671,'title':'Harry Potter and the Philosopher's Stone','year':2001}][CMD~RADARR~movie_post~{'tmdbId':672,'title':'Harry Potter and the Chamber of Secrets','year':2002}][REPLY~Added Harry Potter and the Philosopher's Stone (2001) and Harry Potter and the Chamber of Secrets (2002). Get ready to be spellbound by these timeless tales!]"
     },
 
     {
@@ -106,15 +109,15 @@ initMessages = [
     },
     {
         "role": "assistant",
-        "content": "[CMDRET:RADARR:movie_lookup:Iron Man 1:title,year,tmdbId]"
+        "content": "[CMDRET~RADARR~movie_lookup~Iron Man 1~title,year,tmdbId]"
     },
     {
         "role": "assistant",
-        "content": "RES:[{'title': 'Iron Man', 'year': 2008, 'tmdbId': 1726}, {'title': 'Tetsuo: The Iron Man', 'year': 1989, 'tmdbId': 41428}]"
+        "content": "RES~[{'title': 'Iron Man', 'year': 2008, 'tmdbId': 1726}, {'title': 'Tetsuo: The Iron Man', 'year': 1989, 'tmdbId': 41428}]"
     },
     {
         "role": "assistant",
-        "content": "[REPLY:I have found the following movie, Iron Man (2008), would you like me to add it to your collection?]"
+        "content": "[REPLY~Iron Man (2008)? It's the movie that kickstarted the Marvel Cinematic Universe!]"
     },
     {
         "role": "user",
@@ -122,7 +125,7 @@ initMessages = [
     },
     {
         "role": "assistant",
-        "content": "[CMD:RADARR:movie_post:{'tmdbId':1726,'title':'Iron Man','year':2008}][REPLY: Added Iron Man 2008 to your collection.]"
+        "content": "[CMD~RADARR~movie_post~{'tmdbId':1726,'title':'Iron Man','year':2008}][REPLY~Iron Man (2008) has been added! If you're interested, I can help you explore more of the Marvel Cinematic Universe movies.]"
     },
 
     {
@@ -139,15 +142,15 @@ initMessages = [
     },
     {
         "role": "assistant",
-        "content": "[CMDRET:RADARR:movie_lookup:Watchmen:title,year,tmdbId]"
+        "content": "[CMDRET~RADARR~movie_lookup~Watchmen~title,year,tmdbId]"
     },
     {
         "role": "assistant",
-        "content": "[RES:[{'title': 'Watchmen', 'year': 2009, 'tmdbId': 13183}, {'title': 'Watchmen', 'year': 2001, 'tmdbId': 343072}, {'title': 'The Night Watchmen', 'year': 2015, 'tmdbId': 331113}, {'title': 'The Night Watchmen', 'year': 2017, 'tmdbId': 398798}, {'title': 'The Watchmen', 'year': 2017, 'tmdbId': 433354}, {'title': 'Tales of the Black Freighter', 'year': 2009, 'tmdbId': 16440}"
+        "content": "[RES~[{'title': 'Watchmen', 'year': 2009, 'tmdbId': 13183}, {'title': 'Watchmen', 'year': 2001, 'tmdbId': 343072}, {'title': 'The Night Watchmen', 'year': 2015, 'tmdbId': 331113}, {'title': 'The Night Watchmen', 'year': 2017, 'tmdbId': 398798}, {'title': 'The Watchmen', 'year': 2017, 'tmdbId': 433354}, {'title': 'Tales of the Black Freighter', 'year': 2009, 'tmdbId': 16440}"
     },
     {
         "role": "assistant",
-        "content": "[REPLY:I have found multiple results, I assume you mean the 2009 movie, would you like me to add it to your collection? There is also a 2001 movie, a 2015 movie called The Night Watchmen, and a 2017 movie called The Watchmen. If you did mean the 2009 movie, might I suggest also adding the 2009 movie Tales of the Black Freighter which is a short film based on the Watchmen comic book series.]"
+        "content": "[REPLY~I've found a few options for you! I assume you're referring to the 2009 Watchmen movie, would you like me to add this? There are also other options like a 2001 movie, a 2015 movie called The Night Watchmen, and a 2017 movie called The Watchmen. If you meant the 2009 film, I'd also recommend adding the 2009 short film, Tales of the Black Freighter, which is based on the Watchmen comic book series.]"
     },
     {
         "role": "user",
@@ -155,13 +158,55 @@ initMessages = [
     },
     {
         "role": "assistant",
-        "content": "[CMD:RADARR:movie_post:{'tmdbId':13183,'title':'Watchmen','year':2009}][CMD:RADARR:movie_post:{'tmdbId':16440,'title':'Tales of the Black Freighter','year':2009}][REPLY: Added Watchmen and Tales of the Black Freighter from 2009 to your collection.]"
-    }
+        "content": "[CMD~RADARR~movie_post~{'tmdbId':13183,'title':'Watchmen','year':2009}][CMD~RADARR~movie_post~{'tmdbId':16440,'title':'Tales of the Black Freighter','year':2009}][REPLY~Added Watchmen and Tales of the Black Freighter from 2009. Prepare for a thrilling cinematic experience!]"
+    },
 ]
 
-currentMessage = initMessages.copy()
+# Run a chat completion
+def runChatCompletion(message):
+    # Run a chat completion
+    response = openai.ChatCompletion.create(
+        model = "gpt-4", #"gpt-3.5-turbo"
+        messages = message,
+        temperature = 0.7
+    )
+    responseMessage = response['choices'][0]['message']['content']
+    print("Assistant: " + responseMessage)
+    commands = '][' in responseMessage and responseMessage.split('][') or [responseMessage]
+
+    message.append({
+        "role": "assistant",
+        "content": responseMessage
+    })
+
+    # Execute commands and return responses
+    if 'CMDRET' in responseMessage:
+        returnMessage = ''
+        for command in commands:
+            command = command.replace('[', '').replace(']', '').split('~')
+            if command[1] == 'RADARR':
+                if command[2] == 'movie_lookup':
+                    returnMessage += "[RES~" + lookup_movie(command[3], command[4]) + "]"
+
+        message.append({
+            "role": "assistant",
+            "content": returnMessage
+        })
+        print("System: " + returnMessage)
+        
+        runChatCompletion(message)
+    if 'REPLY' in responseMessage:
+        for command in commands:
+            command = command.replace('[', '').replace(']', '').split('~')
+            if command[0] == 'REPLY':
+                print("CineMatic: " + command[1])
+        return message
+    
+    return message
+
 
 # Loop prompting for input
+currentMessage = initMessages.copy()
 for i in range(10):
     userText = input("User: ")
     currentMessage.append({
@@ -169,36 +214,4 @@ for i in range(10):
         "content": userText
     })
 
-    # Run a chat completion
-    response = openai.ChatCompletion.create(
-        model = "gpt-4", #"gpt-3.5-turbo"
-        messages = currentMessage,
-        temperature = 0.7
-    )
-    responseMessage = response['choices'][0]['message']['content']
-    print("Assistant: " + responseMessage)
-    commands = '][' in responseMessage and responseMessage.split('][') or [responseMessage]
-
-    # Execute commands and return responses
-    if 'CMDRET' in responseMessage:
-        returnMessage = ''
-        for command in commands:
-            command = command[1:-1].split(':')
-            if command[1] == 'RADARR':
-                if command[2] == 'movie_lookup':
-                    returnMessage = "[RES:" + lookup_movie(command[3], command[4]) + "]"
-
-        currentMessage.append({
-            "role": "assistant",
-            "content": returnMessage
-        })
-        print("System: " + returnMessage)
-
-        # Run a chat completion
-        response = openai.ChatCompletion.create(
-            model = "gpt-4",
-            messages = currentMessage,
-            temperature = 0.7
-        )
-        responseMessage = response['choices'][0]['message']['content']
-        print("Assistant: " + responseMessage)
+    currentMessage = runChatCompletion(currentMessage)
