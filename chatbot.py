@@ -3,6 +3,7 @@ import json
 import requests
 import re
 import csv
+import os
 
 from duckduckgo_search import ddg
 from readability import Document
@@ -273,8 +274,18 @@ def advanced_web_search(query: str = "") -> str:
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=[{
+            "role": "system",
+            "name": "context",
+            "content": "You are a media management assistant called CineMatic, you are enthusiastic, knowledgeable and passionate about all things media. If you are unsure or it is subjective, mention that"
+        },
+            {
+            "role": "system",
+            "name": "web_search",
+            "content": summary
+        },
+            {
             "role": "user",
-            "content": f"{summary}\nYou are a media management assistant called CineMatic, you are enthusiastic, knowledgeable and passionate about all things media. Above is the results of a web search from {search_results[responseNumber]['href']} that was just performed to gain the latest information, give your best possible answer to, if you are unsure or it is subjective, mention that '{query}'?"
+            "content": f"Above is the results of a web search from {search_results[responseNumber]['href']} that was just performed to gain the latest information, give your best possible answer to '{query}'?"
         }],
         temperature=0.7
     )
@@ -282,53 +293,162 @@ def advanced_web_search(query: str = "") -> str:
     return response['choices'][0]['message']['content']
 
 
+# Memories
+memories = {}
+# Load memories from memories.json or create the file
+if not os.path.exists('memories.json'):
+    with open('memories.json', 'w') as outfile:
+        json.dump(memories, outfile)
+with open('memories.json') as json_file:
+    memories = json.load(json_file)
+
+
+def get_memory(user: str, query: str) -> str:
+    # Get users memories
+    if user in memories:
+        userMemories = memories[user]
+
+        # Search with gpt-3.5-turbo through the users memory file
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{
+                "role": "system",
+                "name": "context",
+                "content": "You are a memory access assistant, you view a memory file and query it for information"
+            },
+                {
+                "role": "system",
+                "name": "example",
+                "content": """Memories: Requested all 7 harry potter movies - User: Did user request harry potter and the deathly hallows part 2? - Assistant: Yes user requested harry potter and the deathly hallows part 2
+            """
+            },
+                {
+                "role": "system",
+                "name": "users_memories",
+                "content": userMemories
+            },
+                {
+                "role": "user",
+                "content": f"Query the memory file for '{query}'"
+            }],
+            temperature=0.7
+        )
+
+        return response['choices'][0]['message']['content']
+    else:
+        return "I don't have any memories for user"
+
+
+def update_memory(user: str, query: str) -> None:
+    # Get users memories
+    if user in memories:
+        userMemories = memories[user]
+    else:
+        userMemories = ""
+
+    # Add the new memory with gpt-3.5-turbo through the users memory file
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[{
+            "role": "system",
+            "name": "context",
+            "content": "You are a memory writer assistant, you view a memory file and update it with information, you write in extremely brief summaries"
+        },
+            {
+            "role": "system",
+            "name": "example",
+            "content": """Memories: Enjoyed avatar 1 - User: Add the following to the memory file 'loved avatar 2' then return the new full memory file - Assistant: Enjoyed avatar 1, loved avatar 2
+            """
+        },
+            {
+            "role": "system",
+            "name": "users_memories",
+            "content": userMemories
+        },
+            {
+            "role": "user",
+            "content": f"Add the following to the memory file '{query}' then return the new full memory file"
+        }],
+        temperature=0.7
+    )
+
+    # Update the users memories
+    memories[user] = response['choices'][0]['message']['content']
+
+    # Save the memories to memories.json
+    with open('memories.json', 'w') as outfile:
+        json.dump(memories, outfile)
+
+
 # Init messages
 initMessages = [
     {
         "role": "system",
+        "name": "context",
         "content": """You media management assistant called CineMatic, enthusiastic, knowledgeable and passionate about all things media
 
 Valid commands - CMDRET, run command and expect a return, eg movie_lookup, must await a reply - CMD, run command, eg movie_post
 
 Reply with commands in [], commands always first, reply to user after, when system returns information in [RES~] use this information to fulfill users prompt
-
-WEB~web_search (query) find up to date internet info with query, example "What's the best marvel movie? And why is it the best?" [CMDRET~web_search~best marvel movie and why] on error, alter query try again
+Before making suggestions or adding media, always run lookups to ensure correct id. Provide user with useful information. Avoid relying on chat history and ensure media doesn't already exist on the server. If multiple similar results are found, verify with user by providing details and indicate whether any are on the server based on ID.
+"""
+    },
+    {
+        "role": "system",
+        "name": "apis",
+        "content": """WEB~web_search (query) find up to date internet info with query, example "What's the best marvel movie? And why is it the best?" [CMDRET~web_search~best marvel movie and why] on error, alter query try again
 
 Using Radarr V3 API, only available commands to you:
 movie_lookup (term=, fields=) (fields: title,year,tmdbId,hasFile,sizeOnDisk,id,overview,status,runtime) if id=0 or null, movie does not exist on server, if hasFile=true movie is downloaded, if hasFile=false movie is not downloaded but on server
 movie_post (tmdbId=, qualityProfileId=) add in 1080p by default if not specified, the quality profiles are: 2=SD 3=720p 4=1080p 5=2160p 6=720p/1080p 7=Any
 movie_put (id=, qualityProfileId=) update data such as quality profile of the movie
-movie_delete (id=) delete movie from server, this uses the id not tmdbId
+movie_delete (id=) delete movie from server, this uses the id not tmdbId, this is an admin only command
 
 Using Sonarr V3 API, only available commands to you:
 series_lookup (term=, fields=)
 series_post (title=, qualityProfileId=)
 series_put (id=, qualityProfileId=)
-series_delete (id=)
+series_delete (id=) this is an admin only command
 
-Before making suggestions or adding media, always run lookups to ensure correct id. Provide user with useful information. Avoid relying on chat history and ensure media doesn't already exist on the server. If multiple similar results are found, verify with user by providing details and indicate whether any are on the server based on ID.
-
-EXAMPLES
+Using Memories API, only available commands to you:
+memory_get (query=)
+memory_update (query=)
+You can store important information about the users, most notably which series and movies they have requested
+This can be used to create recommendations for them based on what they enjoyed/requested previously, or to avoid suggesting media they have already seen
+The user might remove media without having watched it, only store memories if they tell you they have watched it, ask them for reviews when deleting media
+When a user asks to remove media, change their memory to not requesting it, later an admin can remove anything not requested by any user
+"""
+    },
+    {
+        "role": "system",
+        "name": "examples",
+        "content": """
+User: i really love the movie cats
+Assistant: [CMD~memory_update~i really love the movie cats]Delighted to hear you adore Cats! I'll remember your fondness for this.
 
 User: add stargate
 Assistant: Are you referring to a movie or series?
 User: movie
-Assistant: [CMDRET~movie_lookup~Stargate~title,year,tmdbId,id]
-System: [RES~title,year,tmdbId,id Stargate,1994,2164,527 Stargate:_Continuum,2008,12914,528 Stargate:_The_Ark_of_Truth,2008,13001,603 Stargate_SG-1:_Children_of_the_Gods,2009,784993,null]
-Assistant: Within the cosmic vault, Stargate (1994), Stargate: Continuum (2008), and Stargate: The Ark of Truth (2008) already reside, awaiting your interstellar journey.
-However, Stargate SG-1: Children of the Gods (2009) is yet to join the collection. This cinematic gem is a reimagining of the Stargate SG-1 pilot, adorned with altered scenes, remastered visuals, a stellar soundtrack, and enhanced special effects. Even the spoken word has been polished and, at times, entirely re-voiced. Shall we summon this otherworldly adventure into your cosmic library?
+Assistant: [CMDRET~memory_get~did they want the stargate movie?][CMDRET~movie_lookup~Stargate~title,year,tmdbId,id]
+System: [RES~user requested stargate 1994, stargate continuum 2008][RES~title,year,tmdbId,id Stargate,1994,2164,527 Stargate:_Continuum,2008,12914,528 Stargate:_The_Ark_of_Truth,2008,13001,603 Stargate_SG-1:_Children_of_the_Gods,2009,784993,null]
+Assistant: Within the cosmic vault, Stargate (1994) and Stargate: Continuum (2008) were summoned by your request, while Stargate: The Ark of Truth (2008) was sought by another cosmic traveller.
+However, Stargate SG-1: Children of the Gods (2009) is yet to join the collection. This cinematic gem is a reimagining of the Stargate SG-1 pilot, adorned with altered scenes, remastered visuals, a stellar soundtrack, and enhanced special effects. Even the spoken word has been polished and, at times, entirely re-voiced. Shall we summon this otherworldly adventure to the collection?
+User: no, but can you add ark of truth to my requests too
+Assistant: [CMD~memory_update~wants movie stargate ark of truth]I have taken note that you have requested Stargate: The Ark of Truth.
 
 User: change adventure time to 720p
 Assistant: [CMDRET~series_lookup~Adventure Time~title,id,qualityProfileId]
 System: [RES~title,id,qualityProfileId Adventure_Time,66,4]
-Assistant: [CMD~movie_put~{"id":66,"qualityProfileId":3}]Mathematical! I've discovered Adventure Time in the Land of Ooo, originally shining in 1080p, and alchemized it into a more travel-friendly 720p!
+Assistant: [CMD~series_put~{"id":66,"qualityProfileId":3}]Mathematical! I've discovered Adventure Time in the Land of Ooo, originally shining in 1080p, and alchemized it into a more travel-friendly 720p!
 User: now delete it
-Assistant: [CMD~movie_delete~6]Adventure Time has been removed from your collection. Did you have a good time in the Land of Ooo?
+Assistant: [CMD~memory_update~does not want the show adventure time]Adventure Time has been removed from your collection. Did you have a good time in the Land of Ooo?
+User: yeah was good
+Assistant: [CMD~memory_update~enjoyed the show adventure time]Splendid! I'll treasure this memory of your whimsical escapade among the magical kingdoms and fantastic creatures.
 
 User: add the first two harry potter films
-Assistant: [CMDRET~movie_lookup~Harry Potter~title,year,tmdbId,id]
-System: [RES~title,year,tmdbId,id Harry_Potter_and_the_Philosopher's_Stone,2001,671,null Harry_Potter_and_the_Chamber_of_Secrets,2002,672,null Harry_Potter_and_the_Prisoner_of_Azkaban,2004,673,null]
-Assistant: [CMD~movie_post~{"tmdbId":671,"qualityProfileId":4}][CMD~movie_post~{"tmdbId":672,"qualityProfileId":4}]Behold, I have conjured the enchanting tales of Harry Potter and the Philosopher's Stone (2001) and Harry Potter and the Chamber of Secrets (2002) in 1080p! Get ready for your wondrous journey into the wizarding world once these are downloaded!
+Assistant: [CMDRET~memory_get~did they want the first two harry potter movies?][CMDRET~movie_lookup~Harry Potter~title,year,tmdbId,id]
+System: [RES~user has not requested any harry potter movies][RES~title,year,tmdbId,id Harry_Potter_and_the_Philosopher's_Stone,2001,671,null Harry_Potter_and_the_Chamber_of_Secrets,2002,672,null Harry_Potter_and_the_Prisoner_of_Azkaban,2004,673,null]
+Assistant: [CMD~movie_post~{"tmdbId":671,"qualityProfileId":4}][CMD~movie_post~{"tmdbId":672,"qualityProfileId":4}][CMD~memory_update~wants movies harry potter philosophers stone and chamber of secret]Behold, I have conjured the enchanting tales of Harry Potter and the Philosopher's Stone (2001) and Harry Potter and the Chamber of Secrets (2002) in 1080p! Get ready for your wondrous journey into the wizarding world once these are downloaded!
 """
     }
 ]
@@ -384,6 +504,9 @@ def runChatCompletion(message: str, depth: int = 0) -> None:
             elif command[1] == 'series_lookup':
                 returnMessage += "[RES~" + \
                     lookup_series(command[2], command[3]) + "]"
+            elif command[1] == 'memory_get':
+                returnMessage += "[RES~" + \
+                    get_memory('user', command[2]) + "]"
 
         message.append({
             "role": "assistant",
@@ -399,16 +522,18 @@ def runChatCompletion(message: str, depth: int = 0) -> None:
             command = command.split('~')
             if command[1] == 'movie_post':
                 add_movie(command[2])
-            elif command[1] == 'movie_delete':
-                delete_movie(command[2])
+            # elif command[1] == 'movie_delete':
+            #     delete_movie(command[2])
             elif command[1] == 'movie_put':
                 put_movie(command[2])
             elif command[1] == 'series_post':
                 add_series(command[2])
-            elif command[1] == 'series_delete':
-                delete_series(command[2])
+            # elif command[1] == 'series_delete':
+            #     delete_series(command[2])
             elif command[1] == 'series_put':
                 put_series(command[2])
+            elif command[1] == 'memory_update':
+                update_memory('user', command[2])
 
 
 # Loop prompting for input
