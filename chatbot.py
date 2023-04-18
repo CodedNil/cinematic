@@ -210,7 +210,7 @@ initMessages = [
         When system returns you information in a [RES~], the assistant should use this information to respond to the user, ideally not make another command call unless necessary
 
         EXAMPLES
-        
+
         User: add stargate
         Assistant: [CMDRET~RADARR~movie_lookup~Stargate~title,year,tmdbId,id]
         System: [RES~title,year,tmdbId,id Stargate,1994,2164,527 Stargate:_Continuum,2008,12914,528 Stargate:_The_Ark_of_Truth,2008,13001,603 Stargate_SG-1:_Children_of_the_Gods,2009,784993,null]
@@ -241,82 +241,7 @@ initMessages = [
         
         EXAMPLES END
         """
-    },
-
-    # {
-    #     "role": "user",
-    #     "content": "Add the first Iron Man movie"
-    # },
-    # {
-    #     "role": "assistant",
-    #     "content": "[CMDRET~RADARR~movie_lookup~Iron Man 1~title,year,tmdbId,id]"
-    # },
-    # {
-    #     "role": "assistant",
-    #     "content": "[RES~title,year,tmdbId,id Iron_Man,2008,1726,4 Tetsuo:_The_Iron_Man,1989,0,null]"
-    # },
-    # {
-    #     "role": "assistant",
-    #     "content": "Iron Man (2008)? It's the movie that kickstarted the Marvel Cinematic Universe!"
-    # },
-    # {
-    #     "role": "user",
-    #     "content": "Yeah"
-    # },
-    # {
-    #     "role": "assistant",
-    #     "content": """[CMD~RADARR~movie_post~{"tmdbId":1726,"qualityProfileId":4}]Iron Man (2008) has been added in 1080p! If you're interested, I can help you explore more of the Marvel Cinematic Universe movies."""
-    # },
-
-    # {
-    #     "role": "user",
-    #     "content": "Is iron man 2008 on the server? What about the second?"
-    # },
-    # {
-    #     "role": "assistant",
-    #     "content": "[CMDRET~RADARR~movie_lookup~Iron Man 1~title,year,tmdbId,hasFile,id][CMDRET~RADARR~movie_lookup~Iron Man 2~title,year,tmdbId,hasFile,id]"
-    # },
-    # {
-    #     "role": "assistant",
-    #     "content": "[RES~title,year,tmdbId,hasFile,id Iron_Man,2008,1726,True,4 Tetsuo:_The_Iron_Man,1989,41428,False,null][RES~title,year,tmdbId,hasFile,id Iron_Man_2,2010,10138,True,6 The_Man_with_the_Iron_Fists_2,2015,321494,False,null Iron_Man,2008,1726,True,4]"
-    # },
-    # {
-    #     "role": "assistant",
-    #     "content": "Iron Man (2008) is on! Iron Man 2 has been queued for download but isn't available just yet. Iron Man 3 hasn't been added to your collection, let me know if you'd like me to fetch it for you!"
-    # },
-
-    # {
-    #     "role": "user",
-    #     "content": "Add watchmen"
-    # },
-    # {
-    #     "role": "assistant",
-    #     "content": "Is this a movie or tv series?"
-    # },
-    # {
-    #     "role": "user",
-    #     "content": "Movie"
-    # },
-    # {
-    #     "role": "assistant",
-    #     "content": "[CMDRET~RADARR~movie_lookup~Watchmen~title,year,tmdbId,id]"
-    # },
-    # {
-    #     "role": "assistant",
-    #     "content": "[RES~title,year,tmdbId,id Watchmen,2009,13183,38 Watchmen,2001,343072,null The_Night_Watchmen,2015,331113,null The_Night_Watchmen,2017,398798,null The_Watchmen,2017,433354,null Watchmen:_Story_Within_a_Story,_The_Books_of_Watchmen,2009,333131,null Tales_of_the_Black_Freighter,2009,16440,null Under_the_Hood,2009,41207,null Paradox,2010,51239,null #387,2020,684453,null]"
-    # },
-    # {
-    #     "role": "assistant",
-    #     "content": "I've found a few options for you! I assume you're referring to the 2009 Watchmen movie, would you like me to add this? There are also other options like a 2001 movie, a 2015 movie called The Night Watchmen, and a 2017 movie called The Watchmen. If you meant the 2009 film, I'd also recommend adding the 2009 short film, Tales of the Black Freighter, which is based on the Watchmen comic book series."
-    # },
-    # {
-    #     "role": "user",
-    #     "content": "Yes the 2009 movie and the short film sounds good too"
-    # },
-    # {
-    #     "role": "assistant",
-    #     "content": """[CMD~RADARR~movie_post~{"tmdbId":13183,"qualityProfileId":4}][CMD~RADARR~movie_post~{"tmdbId":16440,"qualityProfileId":4}]Added Watchmen and Tales of the Black Freighter from 2009 both in 1080p. Prepare for a thrilling cinematic experience!"""
-    # }
+    }
 ]
 
 # Run a chat completion
@@ -396,6 +321,9 @@ def runChatCompletion(message, depth):
 currentMessage = initMessages.copy()
 for i in range(10):
     userText = input("User: ")
+    if userText == 'exit':
+        print(currentMessage)
+        break
     currentMessage.append({
         "role": "user",
         "content": userText
