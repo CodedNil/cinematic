@@ -10,16 +10,16 @@ openai.api_key = credentials['openai']
 
 # Get api details
 sonarr_url = credentials['sonarr']['url']
-sonarr_headers = {'X-Api-Key': credentials['sonarr']['api']}
+sonarr_headers = {
+    'X-Api-Key': credentials['sonarr']['api'], 'Content-Type': 'application/json'}
 sonarr_auth = (credentials['sonarr']['authuser'],
                credentials['sonarr']['authpass'])
 
 radarr_url = credentials['radarr']['url']
-radarr_headers = {'X-Api-Key': credentials['radarr']['api']}
+radarr_headers = {
+    'X-Api-Key': credentials['radarr']['api'], 'Content-Type': 'application/json'}
 radarr_auth = (credentials['radarr']['authuser'],
                credentials['radarr']['authpass'])
-
-tmdb_api = credentials['tmdb']
 
 # Radarr API
 
@@ -27,38 +27,77 @@ tmdb_api = credentials['tmdb']
 
 
 def lookup_movie(term, fields):
-    response = requests.request(
-        "GET", radarr_url + "/api/v3/movie/lookup?term=" + term, headers=radarr_headers, auth=radarr_auth)
+    response = requests.get(radarr_url + "/api/v3/movie/lookup?term=" +
+                            term, headers=radarr_headers, auth=radarr_auth)
 
     if response.status_code != 200:
         return "Error: " + response.status_code
 
+    # Start csv file with fields
+    results = fields
     fields = fields.split(',')
-    results = []
     for movie in response.json():
-        result = {}
+        result = []
         for field in fields:
             if field in movie:
-                result[field] = movie[field]
-        results.append(result)
+                result.append(str(movie[field]).replace(' ', '_'))
+            else:
+                result.append('null')
 
-    return json.dumps(results)
+        results += ' ' + ','.join(result)
+
+    return results
 
 
-def add_movie(tmdbId, title, year):
-    payload = {
-        'tmdbId': tmdbId,
-        'title': title,
-        'year': year
+def lookup_movie_tmdbId(tmdbId):
+    response = requests.get(radarr_url + "/api/v3/movie/lookup/tmdb?tmdbId=" +
+                            str(tmdbId), headers=radarr_headers, auth=radarr_auth)
+
+    if response.status_code != 200:
+        return {}
+
+    return response.json()
+
+
+def get_movie(id):
+    response = requests.get(radarr_url + "/api/v3/movie/" + str(id),
+                            headers=radarr_headers, auth=radarr_auth)
+
+    if response.status_code != 200:
+        return {}
+
+    return response.json()
+
+
+def add_movie(fieldsJson):
+    fields = json.loads(fieldsJson)
+    lookup = lookup_movie_tmdbId(fields['tmdbId'])
+    for field in fields:
+        lookup[field] = fields[field]
+    lookup["addOptions"] = {
+        "searchForMovie": True,
     }
+    lookup["rootFolderPath"] = "/movies"
+    lookup["monitored"] = True
+    lookup["minimumAvailability"] = "announced"
 
-    response = requests.request("POST", radarr_url + "/api/v3/movie",
-                                headers=radarr_headers, auth=radarr_auth, data=payload)
+    requests.post(radarr_url + "/api/v3/movie", headers=radarr_headers,
+                  auth=radarr_auth, data=json.dumps(lookup))
 
-    if response.status_code != 201:
-        return "Error: " + response.status_code
 
-    return "Added " + title
+def put_movie(fieldsJson):
+    fields = json.loads(fieldsJson)
+    lookup = get_movie(fields['id'])
+    for field in fields:
+        lookup[field] = fields[field]
+
+    requests.put(radarr_url + "/api/v3/movie/" + str(
+        lookup['id']), headers=radarr_headers, auth=radarr_auth, data=json.dumps(lookup)).text
+
+
+def delete_movie(id):
+    requests.delete(radarr_url + "/api/v3/movie/" + str(id) + "?deleteFiles=true",
+                    headers=radarr_headers, auth=radarr_auth)
 
 
 # Init messages
@@ -67,33 +106,63 @@ initMessages = [
         "role": "system",
         "content": """You are a media management assistant called CineMatic, you are enthusiastic, knowledgeable and passionate about all things media.
 
-        You have access to the Radarr V3 API:
-        RADARR~movie_lookup
-        RADARR~movie_post
+        You have access to the Radarr V3 API, these are the only available commands to you:
+        RADARR~movie_lookup (term, fields) (lookup movie from term, filter out so only fields remain) (fields: title, year, tmdbId, hasFile, sizeOnDisk, id, overview, status, runtime)
+        If id is a number other than 0 it exists on the server, if it has an id but not hasFile it is not downloaded but on, if id is null or 0 the movie has not been added to the server
+
+        RADARR~movie_post (tmdbId=, qualityProfileId=)
+        Add in 1080p by default if not specified, the quality profiles are:
+        {2: 'SD', 3: '720p', 4: '1080p', 5: '2160p', 6: '720p/1080p', 7: 'Any'}
+
+        RADARR~movie_put (id=, qualityProfileId=)
+        Update data such as quality profile of the movie
+
+        RADARR~movie_delete (id=)
+        Delete movie from server, this uses the id not tmdbId, you can get the id from the movie_lookup command if it is on the server
 
         Valid commands are:
         CMDRET, run command and expect a return, e.g. lookup movie, when using this you must await a reply!
         CMD, run command, e.g. add movie
-        REPLY, reply to user, e.g. Added movie to collection
 
-        The assistant replies only with commands in [] and always runs searches before making suggestions or adding movies to ensure the tmdbId is correct.
+        The assistant replies only with commands in [] and always runs searches before making suggestions or adding movies to ensure the tmdbId or id etc is correct.
+        The assistant always replies in detail about what it will add, and when it does add it lists exactly what was added.
+        Only provides details that are of value to the user, title, year, file size, runtime unless the user requests more.
+        The assistant always looks up information and does not rely on previous chat history.
+
+        EXAMPLES:
+        User: add stargate
+        Assistant: [CMDRET~RADARR~movie_lookup~Stargate~title,year,tmdbId,id]
+        System: [RES~title,year,tmdbId,id Stargate,1994,2164,527 Stargate:_Continuum,2008,12914,528 Stargate:_The_Ark_of_Truth,2008,13001,603 Stargate_SG-1:_Children_of_the_Gods,2009,784993,null]
+        Assistant: I found the movie Stargate (1994), it is already on the server.
+        I have also found Stargate: Continuum (2008) and Stargate: The Ark of Truth (2008), both are on the server.
+        Stargate SG-1: Children of the Gods (2009) is not on the server, would you like to add this?
+        User: yes please
+        Assistant: [CMD~RADARR~movie_post~{"tmdbId":784993,"qualityProfileId":4}]Added Stargate SG-1: Children of the Gods (2009) to the server in 1080p.
+        
+        User: change iron man 2 to 720p
+        Assistant: [CMDRET~RADARR~movie_lookup~Iron Man 2~title,id,qualityProfileId]
+        System: [RES~title,id,qualityProfileId Iron_Man_2,6,5]
+        Assistant: [CMD~RADARR~movie_put~{"id":6,"qualityProfileId":3}]I've found Iron Man 2 (2010) on the server in 2160p (4k) and changed this to 720p.
+        User: now delete it
+        Assistant: [CMD~RADARR~movie_delete~6] Iron Man 2 (2010) has been deleted from the server. Did you enjoy it?
         """
     },
+
     {
         "role": "user",
         "content": "Please add the first two harry potter films"
     },
     {
         "role": "assistant",
-        "content": "[CMDRET~RADARR~movie_lookup~Harry Potter~title,year,tmdbId]"
+        "content": "[CMDRET~RADARR~movie_lookup~Harry Potter~title,year,tmdbId,id]"
     },
     {
         "role": "assistant",
-        "content": "[RES~[{'title': 'Harry Potter and the Philosopher's Stone', 'year': 2001, 'tmdbId': 671}, {'title': 'Harry Potter and the Chamber of Secrets', 'year': 2002, 'tmdbId': 672}, {'title': 'Harry Potter and the Prisoner of Azkaban', 'year': 2004, 'tmdbId': 673}]]"
+        "content": "[RES~title,year,tmdbId,hasFile,id Harry_Potter_and_the_Philosopher's_Stone,2001,671,True,57 Harry_Potter_and_the_Chamber_of_Secrets,2002,672,True,58 Harry_Potter_and_the_Prisoner_of_Azkaban,2004,673,True,59]"
     },
     {
         "role": "assistant",
-        "content": "[REPLY~I've discovered Harry Potter and the Philosopher's Stone (2001) and Harry Potter and the Chamber of Secrets (2002)! Shall I add these magical adventures for you?]"
+        "content": "I've discovered Harry Potter and the Philosopher's Stone (2001) and Harry Potter and the Chamber of Secrets (2002)! Shall I add these magical adventures for you?"
     },
     {
         "role": "user",
@@ -101,96 +170,112 @@ initMessages = [
     },
     {
         "role": "assistant",
-        "content": "[CMD~RADARR~movie_post~{'tmdbId':671,'title':'Harry Potter and the Philosopher's Stone','year':2001}][CMD~RADARR~movie_post~{'tmdbId':672,'title':'Harry Potter and the Chamber of Secrets','year':2002}][REPLY~Added Harry Potter and the Philosopher's Stone (2001) and Harry Potter and the Chamber of Secrets (2002). Get ready to be spellbound by these timeless tales!]"
+        "content": """[CMD~RADARR~movie_post~{"tmdbId":671,"qualityProfileId":4}][CMD~RADARR~movie_post~{"tmdbId":672,"qualityProfileId":4}]Added Harry Potter and the Philosopher's Stone (2001) and Harry Potter and the Chamber of Secrets (2002) in 1080p. Get ready to be spellbound by these timeless tales!"""
     },
 
-    {
-        "role": "user",
-        "content": "Add the first Iron Man movie"
-    },
-    {
-        "role": "assistant",
-        "content": "[CMDRET~RADARR~movie_lookup~Iron Man 1~title,year,tmdbId]"
-    },
-    {
-        "role": "assistant",
-        "content": "[RES~[{'title': 'Iron Man', 'year': 2008, 'tmdbId': 1726}, {'title': 'Tetsuo: The Iron Man', 'year': 1989, 'tmdbId': 41428}]]"
-    },
-    {
-        "role": "assistant",
-        "content": "[REPLY~Iron Man (2008)? It's the movie that kickstarted the Marvel Cinematic Universe!]"
-    },
-    {
-        "role": "user",
-        "content": "Yeah"
-    },
-    {
-        "role": "assistant",
-        "content": "[CMD~RADARR~movie_post~{'tmdbId':1726,'title':'Iron Man','year':2008}][REPLY~Iron Man (2008) has been added! If you're interested, I can help you explore more of the Marvel Cinematic Universe movies.]"
-    },
+    # {
+    #     "role": "user",
+    #     "content": "Add the first Iron Man movie"
+    # },
+    # {
+    #     "role": "assistant",
+    #     "content": "[CMDRET~RADARR~movie_lookup~Iron Man 1~title,year,tmdbId,id]"
+    # },
+    # {
+    #     "role": "assistant",
+    #     "content": "[RES~title,year,tmdbId,id Iron_Man,2008,1726,4 Tetsuo:_The_Iron_Man,1989,0,null]"
+    # },
+    # {
+    #     "role": "assistant",
+    #     "content": "Iron Man (2008)? It's the movie that kickstarted the Marvel Cinematic Universe!"
+    # },
+    # {
+    #     "role": "user",
+    #     "content": "Yeah"
+    # },
+    # {
+    #     "role": "assistant",
+    #     "content": """[CMD~RADARR~movie_post~{"tmdbId":1726,"qualityProfileId":4}]Iron Man (2008) has been added in 1080p! If you're interested, I can help you explore more of the Marvel Cinematic Universe movies."""
+    # },
 
-    {
-        "role": "user",
-        "content": "Is iron man 2008 on the server? What about the second?"
-    },
-    {
-        "role": "assistant",
-        "content": "[CMDRET~RADARR~movie_lookup~Iron Man 1~title,year,tmdbId,hasFile,sizeOnDisk,id][CMDRET~RADARR~movie_lookup~Iron Man 2~title,year,tmdbId,hasFile,sizeOnDisk,id]"
-    },
-    {
-        "role": "assistant",
-        "content": "[RES~[{'title': 'Iron Man', 'year': 2008, 'tmdbId': 1726, 'hasFile': true, 'sizeOnDisk': 10116665158, 'id': 4}, {'title': 'Tetsuo: The Iron Man', 'year': 1989, 'tmdbId': 41428, hasFile': false, 'sizeOnDisk': 0}]][RES~[{'title': 'Iron Man 2', 'year': 2010, 'tmdbId': 10138, 'hasFile': false, 'sizeOnDisk': 0, 'id': 6}]][RES~[{'title': 'Iron Man 3', 'year': 2013, 'tmdbId': 68721, 'hasFile': false, 'sizeOnDisk': 0}]]"
-    },
-    {
-        "role": "assistant",
-        "content": "[REPLY~Iron Man (2008) is already on your server and takes up 9.4GB of space. Iron Man 2 has been queued for download but isn't available just yet. Iron Man 3 hasn't been added to your collection, let me know if you'd like me to fetch it for you!]"
-    },
+    # {
+    #     "role": "user",
+    #     "content": "Is iron man 2008 on the server? What about the second?"
+    # },
+    # {
+    #     "role": "assistant",
+    #     "content": "[CMDRET~RADARR~movie_lookup~Iron Man 1~title,year,tmdbId,hasFile,id][CMDRET~RADARR~movie_lookup~Iron Man 2~title,year,tmdbId,hasFile,id]"
+    # },
+    # {
+    #     "role": "assistant",
+    #     "content": "[RES~title,year,tmdbId,hasFile,id Iron_Man,2008,1726,True,4 Tetsuo:_The_Iron_Man,1989,41428,False,null][RES~title,year,tmdbId,hasFile,id Iron_Man_2,2010,10138,True,6 The_Man_with_the_Iron_Fists_2,2015,321494,False,null Iron_Man,2008,1726,True,4]"
+    # },
+    # {
+    #     "role": "assistant",
+    #     "content": "Iron Man (2008) is on! Iron Man 2 has been queued for download but isn't available just yet. Iron Man 3 hasn't been added to your collection, let me know if you'd like me to fetch it for you!"
+    # },
 
-    {
-        "role": "user",
-        "content": "Add watchmen"
-    },
-    {
-        "role": "assistant",
-        "content": "Is this a movie or tv series?"
-    },
-    {
-        "role": "user",
-        "content": "Movie"
-    },
-    {
-        "role": "assistant",
-        "content": "[CMDRET~RADARR~movie_lookup~Watchmen~title,year,tmdbId]"
-    },
-    {
-        "role": "assistant",
-        "content": "[RES~[{'title': 'Watchmen', 'year': 2009, 'tmdbId': 13183}, {'title': 'Watchmen', 'year': 2001, 'tmdbId': 343072}, {'title': 'The Night Watchmen', 'year': 2015, 'tmdbId': 331113}, {'title': 'The Night Watchmen', 'year': 2017, 'tmdbId': 398798}, {'title': 'The Watchmen', 'year': 2017, 'tmdbId': 433354}, {'title': 'Tales of the Black Freighter', 'year': 2009, 'tmdbId': 16440}"
-    },
-    {
-        "role": "assistant",
-        "content": "[REPLY~I've found a few options for you! I assume you're referring to the 2009 Watchmen movie, would you like me to add this? There are also other options like a 2001 movie, a 2015 movie called The Night Watchmen, and a 2017 movie called The Watchmen. If you meant the 2009 film, I'd also recommend adding the 2009 short film, Tales of the Black Freighter, which is based on the Watchmen comic book series.]"
-    },
-    {
-        "role": "user",
-        "content": "Yes the 2009 movie and the short film sounds good too"
-    },
-    {
-        "role": "assistant",
-        "content": "[CMD~RADARR~movie_post~{'tmdbId':13183,'title':'Watchmen','year':2009}][CMD~RADARR~movie_post~{'tmdbId':16440,'title':'Tales of the Black Freighter','year':2009}][REPLY~Added Watchmen and Tales of the Black Freighter from 2009. Prepare for a thrilling cinematic experience!]"
-    },
+    # {
+    #     "role": "user",
+    #     "content": "Add watchmen"
+    # },
+    # {
+    #     "role": "assistant",
+    #     "content": "Is this a movie or tv series?"
+    # },
+    # {
+    #     "role": "user",
+    #     "content": "Movie"
+    # },
+    # {
+    #     "role": "assistant",
+    #     "content": "[CMDRET~RADARR~movie_lookup~Watchmen~title,year,tmdbId,id]"
+    # },
+    # {
+    #     "role": "assistant",
+    #     "content": "[RES~title,year,tmdbId,id Watchmen,2009,13183,38 Watchmen,2001,343072,null The_Night_Watchmen,2015,331113,null The_Night_Watchmen,2017,398798,null The_Watchmen,2017,433354,null Watchmen:_Story_Within_a_Story,_The_Books_of_Watchmen,2009,333131,null Tales_of_the_Black_Freighter,2009,16440,null Under_the_Hood,2009,41207,null Paradox,2010,51239,null #387,2020,684453,null]"
+    # },
+    # {
+    #     "role": "assistant",
+    #     "content": "I've found a few options for you! I assume you're referring to the 2009 Watchmen movie, would you like me to add this? There are also other options like a 2001 movie, a 2015 movie called The Night Watchmen, and a 2017 movie called The Watchmen. If you meant the 2009 film, I'd also recommend adding the 2009 short film, Tales of the Black Freighter, which is based on the Watchmen comic book series."
+    # },
+    # {
+    #     "role": "user",
+    #     "content": "Yes the 2009 movie and the short film sounds good too"
+    # },
+    # {
+    #     "role": "assistant",
+    #     "content": """[CMD~RADARR~movie_post~{"tmdbId":13183,"qualityProfileId":4}][CMD~RADARR~movie_post~{"tmdbId":16440,"qualityProfileId":4}]Added Watchmen and Tales of the Black Freighter from 2009 both in 1080p. Prepare for a thrilling cinematic experience!"""
+    # }
 ]
 
 # Run a chat completion
-def runChatCompletion(message):
+
+
+def runChatCompletion(message, depth):
     # Run a chat completion
     response = openai.ChatCompletion.create(
-        model = "gpt-4", #"gpt-3.5-turbo"
-        messages = message,
-        temperature = 0.7
+        model="gpt-4",  # "gpt-3.5-turbo"
+        messages=message,
+        temperature=0.7
     )
     responseMessage = response['choices'][0]['message']['content']
     print("Assistant: " + responseMessage)
-    commands = '][' in responseMessage and responseMessage.split('][') or [responseMessage]
+    # Extract commands from the response, commands are within [], everything outside of [] is a response to the user
+    commands = []
+    hasCmdRet = False
+    hasCmd = False
+    while '[' in responseMessage:
+        commands.append(responseMessage[responseMessage.find(
+            '[')+1:responseMessage.find(']')])
+        if 'CMDRET' in commands[-1]:
+            hasCmdRet = True
+        elif 'CMD' in commands[-1]:
+            hasCmd = True
+        # responseMessage = responseMessage[responseMessage.find(']')+1:].strip()
+        responseMessage = responseMessage.replace(
+            '['+commands[-1]+']', '').strip()
+        responseMessage = responseMessage.replace('  ', ' ')
 
     message.append({
         "role": "assistant",
@@ -198,28 +283,38 @@ def runChatCompletion(message):
     })
 
     # Execute commands and return responses
-    if 'CMDRET' in responseMessage:
+    if hasCmdRet:
         returnMessage = ''
         for command in commands:
-            command = command.replace('[', '').replace(']', '').split('~')
+            command = command.split('~')
             if command[1] == 'RADARR':
                 if command[2] == 'movie_lookup':
-                    returnMessage += "[RES~" + lookup_movie(command[3], command[4]) + "]"
+                    returnMessage += "[RES~" + \
+                        lookup_movie(command[3], command[4]) + "]"
 
         message.append({
             "role": "assistant",
             "content": returnMessage
         })
         print("System: " + returnMessage)
-        
-        runChatCompletion(message)
-    if 'REPLY' in responseMessage:
+
+        if depth < 3:
+            runChatCompletion(message, depth+1)
+    # Execute regular commands
+    elif hasCmd:
         for command in commands:
-            command = command.replace('[', '').replace(']', '').split('~')
-            if command[0] == 'REPLY':
-                print("CineMatic: " + command[1])
-        return message
-    
+            command = command.split('~')
+            if command[1] == 'RADARR':
+                if command[2] == 'movie_post':
+                    add_movie(command[3])
+                elif command[2] == 'movie_delete':
+                    delete_movie(command[3])
+                elif command[2] == 'movie_put':
+                    put_movie(command[3])
+
+    if len(responseMessage) > 0:
+        print("CineMatic: " + responseMessage)
+
     return message
 
 
@@ -232,4 +327,4 @@ for i in range(10):
         "content": userText
     })
 
-    currentMessage = runChatCompletion(currentMessage)
+    currentMessage = runChatCompletion(currentMessage, 0)
