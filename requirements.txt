@@ -1,0 +1,6 @@
+openai
+requests
+duckduckgo-search
+readability-lxml
+beautifulsoup4
+bert-extractive-summarizer
