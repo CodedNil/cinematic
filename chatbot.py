@@ -149,7 +149,7 @@ def lookup_movie(term: str, query: str) -> str:
         messages=[
             {
                 "role": "user",
-                "content": "You are a data parser assistant, provide a lot of information, if there are multiple matches to the query list them all. Provide a concise summary, format like this {Movie_Name;unavailable;release 1995;tmdbId 862}",
+                "content": "You are a data parser assistant, provide a lot of information, if there are multiple matches to the query list them all, you also include data for media not available on the server. Provide a concise summary, format like this with key value {Movie_Name;unavailable;release 1995;tmdbId 862}",
             },
             {"role": "user", "content": "\n".join(results)},
             {
@@ -164,17 +164,25 @@ def lookup_movie(term: str, query: str) -> str:
 
 
 # Tests
-# print(lookup_movie("The Matrix", "Is the matrix on the server and if so what quality?"))
 # print(lookup_movie("The Matrix", "What is the file size of the matrix?"))
-# print(lookup_movie("Stargate", "Does stargate movie exist on the server, if not what is the title, year, tmdbId"))
-# print(lookup_movie("Harry Potter", "Do any harry potter movies exist on the server, if not what is the title, year, tmdbId"))
-print(
-    lookup_movie(
-        "Lord of the Rings",
-        "List lord of the rings movies with data [availability, title, year, tmdbId]",
-    )
-)
-# print(lookup_movie("Toy Story", "List toy story movies with data [availability, title, year, tmdbId]"))
+# print(
+#     lookup_movie(
+#         "Stargate",
+#         "List stargate movies with data {availability, title, year, tmdbId}",
+#     )
+# )
+# print(
+#     lookup_movie(
+#         "Harry Potter ",
+#         "List harry potter movies with data {availability, title, year, tmdbId}",
+#     )
+# )
+# print(
+#     lookup_movie(
+#         "Lord of the Rings ",
+#         "List lord of the rings movies with data {availability, title, year, tmdbId}",
+#     )
+# )
 
 
 def lookup_movie_tmdbId(tmdbId: int) -> dict:
@@ -513,7 +521,7 @@ def get_memory(user: str, query: str) -> str:
 
 def update_memory(user: str, query: str) -> None:
     """Update a memory in the users memory file with ai"""
-    
+
     # Get users memories
     if user in memories:
         userMemories = memories[user]
@@ -597,15 +605,15 @@ When a user asks to remove media, change their memory to not requesting it, ask 
     {"role": "user", "content": "movie"},
     {
         "role": "assistant",
-        "content": "[CMDRET~memory_get~wants stargate movie?][CMDRET~movie_lookup~Stargate~title,year,tmdbId,id]I'm looking this up",
+        "content": "[CMDRET~memory_get~wants stargate movie?][CMDRET~movie_lookup~Stargate~List stargate movies with data {availability, title, year, tmdbId}]I'm looking this up",
     },
     {
         "role": "system",
-        "content": "[RES~user wants stargate 1994 & continuum 2008][RES~title,year,tmdbId,id SG,1994,2164,527 SG_Continuum,2008,12914,528 SG_Ark_of_Truth,2008,13001,603 SG_Children_of_the_Gods,2009,784993,null]",
+        "content": "[RES~user wants stargate 1994 & continuum 2008][RES~Stargate; available; year 1994; tmdbId 2164\Stargate: Continuum; available; year 2008; tmdbId 12914\Stargate: The Ark of Truth; available; year 2008; tmdbId 13001\Stargate SG-1: Children of the Gods; unavailable; year 2009; tmdbId 784993]",
     },
     {
         "role": "assistant",
-        "content": "Stargate 1994 and Continuum 2008 are already on the server at your request, Ark of Truth 2008 is on by someone elses request, but Children of the Gods 2009 is not on the server, would you like to add it? It is a reimagining of the SG-1 pilot with altered scenes, remastered visuals etc.",
+        "content": "Stargate 1994 and Continuum 2008 are already on the server at your request, Ark of Truth 2008 is on by someone elses request. Children of the Gods 2009 is not on the server, would you like to add it? It is a reimagining of the SG-1 pilot with altered scenes, remastered visuals etc.",
     },
     {"role": "user", "content": "no, but add ark of truth to my requests too"},
     {
@@ -613,57 +621,53 @@ When a user asks to remove media, change their memory to not requesting it, ask 
         "content": "[CMD~memory_update~wants movie stargate ark of truth]I've memorised this",
     },
     {"role": "user", "content": "adventure time to 720p"},
-    {
-        "role": "assistant",
-        "content": "[CMDRET~series_lookup~Adventure Time~title,id,qualityProfileId]Looking up Adventure Time",
-    },
-    {
-        "role": "system",
-        "content": "[RES~title,id,qualityProfileId Adventure_Time,66,4]",
-    },
-    {
-        "role": "assistant",
-        "content": '[CMD~series_put~{"id":66,"qualityProfileId":3}]Found it in 1080p, changing to 720p',
-    },
-    {"role": "user", "content": "now delete it"},
-    {
-        "role": "assistant",
-        "content": "[CMD~memory_update~doesnt want show adventure time]Removed it, did you enjoy it?",
-    },
-    {"role": "user", "content": "yeah was good"},
-    {
-        "role": "assistant",
-        "content": "[CMD~memory_update~enjoyed show adventure time]Great I will remember.",
-    },
+    # {
+    #     "role": "assistant",
+    #     "content": "[CMDRET~series_lookup~Adventure Time~title,id,qualityProfileId]Looking up Adventure Time",
+    # },
+    # {
+    #     "role": "system",
+    #     "content": "[RES~title,id,qualityProfileId Adventure_Time,66,4]",
+    # },
+    # {
+    #     "role": "assistant",
+    #     "content": '[CMD~series_put~{"id":66,"qualityProfileId":3}]Found it in 1080p, changing to 720p',
+    # },
+    # {"role": "user", "content": "now delete it"},
+    # {
+    #     "role": "assistant",
+    #     "content": "[CMD~memory_update~doesnt want show adventure time]Removed it, did you enjoy it?",
+    # },
+    # {"role": "user", "content": "yeah was good"},
+    # {
+    #     "role": "assistant",
+    #     "content": "[CMD~memory_update~enjoyed show adventure time]Great I will remember.",
+    # },
     {"role": "user", "content": "add first two harry potter films"},
     {
         "role": "assistant",
-        "content": "[CMDRET~memory_get~wants first two harry potter movies?][CMDRET~movie_lookup~Harry Potter~title,year,tmdbId,id]Looking up Harry Potter",
+        "content": "[CMDRET~memory_get~wants first two harry potter movies?][CMDRET~movie_lookup~Harry Potter~List harry potter movies with data {availability, title, year, tmdbId}]Looking up Harry Potter",
     },
     {
         "role": "system",
-        "content": "[RES~user hasnt requested any harry potter movies][RES~title,year,tmdbId,id HP_Philosophers_Stone,2001,671,null HP_Chamber_of_Secrets,2002,672,null HP_Prisoner_of_Azkaban,2004,673,null]",
+        "content": "[RES~user hasnt requested any harry potter movies][RES~Harry Potter and the Philosopher's Stone; unavailable; release year 2001; tmdbId 671\Harry Potter and the Half-Blood Prince; unavailable; release year 2009; tmdbId 767\Harry Potter and the Goblet of Fire; unavailable; release year 2005; tmdbId 674\Harry Potter and the Chamber of Secrets; unavailable; release year 2002; tmdbId 672\Harry Potter and the Prisoner of Azkaban; unavailable; release year 2004; tmdbId 673\Harry Potter and the Deathly Hallows: Part 2; unavailable; release year 2011; tmdbId 12445\Harry Potter and the Order of the Phoenix; unavailable; release year 2007; tmdbId 675\Harry Potter and the Deathly Hallows: Part 1; unavailable; release year 2010; tmdbId 12444]",
     },
     {
         "role": "assistant",
-        "content": '[CMD~movie_post~{"tmdbId":671,"qualityProfileId":4}][CMD~movie_post~{"tmdbId":672,"qualityProfileId":4}][CMD~memory_update~wants movies harry potter philosophers stone, chamber of secret]Both are on the way in 1080p, I\'ll remember you want them.',
+        "content": '[CMD~memory_update~wants movies harry potter philosophers stone, chamber of secret][CMD~movie_post~{"tmdbId":671,"qualityProfileId":4}][CMD~movie_post~{"tmdbId":672,"qualityProfileId":4}]Both are on the way in 1080p, Ill remember you want them.',
     },
     {"role": "user", "content": "add lotr trilogy"},
     {
         "role": "assistant",
-        "content": "[CMDRET~memory_get~wants lord of the rings trilogy?][CMDRET~movie_lookup~Lord of the Rings~title,year,qualityProfileId,id]Looking up Lord of the Rings",
+        "content": "[CMDRET~memory_get~wants lord of the rings trilogy?][CMDRET~movie_lookup~Lord of the Rings~List lord of the rings movies with data {availability, title, year, tmdbId}",
     },
     {
         "role": "system",
-        "content": "[RES~no memories][RES~title,year,tmdbId,qualityProfileId,id LOTR_Fellowship_of_the_Ring,2001,120,5,35 LOTR_Two_Towers,2002,121,5,36 LOTR_Return_of_the_King,2003,122,5,37]",
+        "content": "[RES~no memories][{available on the server, The Lord of the Rings: The Two Towers, 2002, 121}\{available on the server, The Lord of the Rings: The Fellowship of the Ring, 2001, 120}\{available on the server, The Lord of the Rings: The Return of the King, 2003, 122}\{unavailable on the server, The Lord of the Rings, 1978, 123}]",
     },
     {
         "role": "assistant",
-        "content": '[CMD~memory_update~wants movies lord of the rings trilogy][CMD~movie_post~{"tmdbId":120,"qualityProfileId":4}][CMD~movie_post~{"tmdbId":121,"qualityProfileId":4}][CMD~movie_post~{"tmdbId":122,"qualityProfileId":4}]The Lord of the Rings trilogy is not on the server. I\'ve added these in 1080p.',
-    },
-    {
-        "role": "user",
-        "content": "this is incorrect, that information means all three are already on in 4k",
+        "content": "[CMD~memory_update~wants movies lord of the rings trilogy]The Lord of the Rings trilogy are already on, I have noted you want them.",
     },
     {
         "role": "user",
