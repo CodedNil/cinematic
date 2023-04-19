@@ -335,17 +335,17 @@ def lookup_series(term: str, query: str) -> str:
 
 
 # Tests
-print(
-    lookup_series(
-        "Stargate", "List stargate series with data {availability, title, year, tmdbId}"
-    )
-)
-print(
-    lookup_series(
-        "Adventure Time",
-        "List adventure time series with data {availability, title, year, tmdbId, resolution}",
-    )
-)
+# print(
+#     lookup_series(
+#         "Stargate", "List stargate series with data {availability, title, year, tmdbId}"
+#     )
+# )
+# print(
+#     lookup_series(
+#         "Adventure Time",
+#         "List adventure time series with data {availability, title, year, tmdbId, resolution}",
+#     )
+# )
 
 
 def get_series(id: int) -> dict:
@@ -434,7 +434,7 @@ def web_search(query: str = "", numResults: int = 4) -> dict:
 
 
 def advanced_web_search(query: str = "") -> str:
-    """Perform a DuckDuckGo Search, parse the results through gpt-3.5-turbo to get the top pick site based on the query, then scrape that website through gpt-3.5-turbo to return the answer to the prompt"""
+    """Perform a DuckDuckGo Search, parse the results through gpt to get the top pick site based on the query, then scrape that website through gpt to return the answer to the prompt"""
     search_results = web_search(query, 8)
 
     # Run a chat completion to get the top pick site
@@ -632,7 +632,7 @@ Before making suggestions or adding media, always run lookups to ensure correct 
         "content": """WEB~web_search (query) do web search, example "Whats top marvel movie?" [CMDRET~web_search~highest rated marvel movie] on error, alter query try again
 
 Movies only available commands:
-movie_lookup (term=, fields=) (fields: title,year,tmdbId,hasFile,sizeOnDisk,id,overview,status,runtime) if id=0 or null, movie does not exist on server, if hasFile=true movie is downloaded, if hasFile=false movie isnt downloaded but on server
+movie_lookup (term=, query=)
 movie_post (tmdbId=, qualityProfileId=) add in 1080p by default, the quality profiles are: 2=SD 3=720p 4=1080p 5=2160p 6=720p/1080p 7=Any
 movie_put (id=, qualityProfileId=) update data such as quality profile of the movie
 movie_delete (id=) delete movie from server, uses the id not tmdbId, admin only command
@@ -793,14 +793,14 @@ def runChatCompletion(message: str, depth: int = 0) -> None:
     elif hasCmd:
         for command in commands:
             command = command.split("~")
-            # if command[1] == 'movie_post':
-            #     add_movie(command[2])
+            if command[1] == 'movie_post':
+                add_movie(command[2])
             # elif command[1] == 'movie_delete':
             #     delete_movie(command[2])
-            if command[1] == "movie_put":
+            elif command[1] == "movie_put":
                 put_movie(command[2])
-            # elif command[1] == 'series_post':
-            #     add_series(command[2])
+            elif command[1] == 'series_post':
+                add_series(command[2])
             # elif command[1] == 'series_delete':
             #     delete_series(command[2])
             elif command[1] == "series_put":
@@ -810,25 +810,15 @@ def runChatCompletion(message: str, depth: int = 0) -> None:
 
 
 # Loop prompting for input
-# currentMessage = initMessages.copy()
-# for i in range(10):
-#     userText = input("User: ")
-#     if userText == 'exit':
-#         print(json.dumps(currentMessage, indent=4))
-#         break
-#     currentMessage.append({
-#         "role": "user",
-#         "content": userText
-#     })
+currentMessage = initMessages.copy()
+for i in range(10):
+    userText = input("User: ")
+    if userText == 'exit':
+        print(json.dumps(currentMessage, indent=4))
+        break
+    currentMessage.append({
+        "role": "user",
+        "content": userText
+    })
 
-#     runChatCompletion(currentMessage, 0)
-
-# # Remove the assistant command search messages
-# # Loop in reverse
-# for message in reversed(currentMessage):
-#     if message['role'] == 'assistant':
-#         # Remove all commands from the message, between [ and ] and if the message is then empty remove it
-#         message['content'] = re.sub(
-#             r'\[.*?\]', '', message['content']).strip()
-#         if message['content'] == "" or message['content'] == "\n":
-#             currentMessage.remove(message)
+    runChatCompletion(currentMessage, 0)
