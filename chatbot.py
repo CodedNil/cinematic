@@ -19,53 +19,169 @@ transformers_logging.set_verbosity(transformers_logging.ERROR)
 
 
 # Read from credentials file
-credentials = json.loads(open('credentials.json').read())
+credentials = json.loads(open("credentials.json").read())
 
 # Set API key
-openai.api_key = credentials['openai']
+openai.api_key = credentials["openai"]
 
 # Get api details
-sonarr_url = credentials['sonarr']['url']
+sonarr_url = credentials["sonarr"]["url"]
 sonarr_headers = {
-    'X-Api-Key': credentials['sonarr']['api'], 'Content-Type': 'application/json'}
-sonarr_auth = (credentials['sonarr']['authuser'],
-               credentials['sonarr']['authpass'])
+    "X-Api-Key": credentials["sonarr"]["api"],
+    "Content-Type": "application/json",
+}
+sonarr_auth = (credentials["sonarr"]["authuser"], credentials["sonarr"]["authpass"])
 
-radarr_url = credentials['radarr']['url']
+radarr_url = credentials["radarr"]["url"]
 radarr_headers = {
-    'X-Api-Key': credentials['radarr']['api'], 'Content-Type': 'application/json'}
-radarr_auth = (credentials['radarr']['authuser'],
-               credentials['radarr']['authpass'])
+    "X-Api-Key": credentials["radarr"]["api"],
+    "Content-Type": "application/json",
+}
+radarr_auth = (credentials["radarr"]["authuser"], credentials["radarr"]["authpass"])
 
 # APIs
 
 
-def lookup_movie(term: str, fields: str = "title,tmdbId,id") -> str:
-    response = requests.get(radarr_url + "/api/v3/movie/lookup?term=" +
-                            term, headers=radarr_headers, auth=radarr_auth)
+def sizeof_fmt(num, suffix="B"):
+    """ "Return the human readable size of a file from bytes, e.g. 1024 -> 1KB"""
+    for unit in ["", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"]:
+        if abs(num) < 1024:
+            return f"{num:3.1f}{unit}{suffix}"
+        num /= 1024
+    return f"{num:.1f}Yi{suffix}"
+
+
+qualityProfiles = {
+    2: "SD",
+    3: "720p",
+    4: "1080p",
+    5: "2160p",
+    6: "720p/1080p",
+    7: "Any",
+}
+
+
+def lookup_movie(term: str, query: str) -> str:
+    response = requests.get(
+        radarr_url + "/api/v3/movie/lookup?term=" + term,
+        headers=radarr_headers,
+        auth=radarr_auth,
+    )
 
     if response.status_code != 200:
         return "Error: " + response.status_code
 
-    # Start csv file with fields
-    results = fields
-    fields = fields.split(',')
+    # Convert to plain english
+    results = []
     for movie in response.json():
         result = []
-        for field in fields:
-            if field in movie:
-                result.append(str(movie[field]).replace(' ', '_'))
-            else:
-                result.append('null')
+        result.append(movie["title"])
+        result.append("status " + movie["status"] + " year " + str(movie["year"]))
+        if "id" in movie and movie["id"] != 0:
+            result.append("available on the server")
+        else:
+            result.append("unavailable on the server")
+        if "hasFile" in movie and movie["hasFile"] == True:
+            result.append("file size " + sizeof_fmt(movie["sizeOnDisk"]))
+            # File info
+            if "movieFile" in movie:
+                if (
+                    "quality" in movie["movieFile"]
+                    and "quality" in movie["movieFile"]["quality"]
+                    and "name" in movie["movieFile"]["quality"]["quality"]
+                ):
+                    result.append(
+                        "quality " + movie["movieFile"]["quality"]["quality"]["name"]
+                    )
+                if (
+                    "mediaInfo" in movie["movieFile"]
+                    and "resolution" in movie["movieFile"]["mediaInfo"]
+                ):
+                    result.append(
+                        "resolution " + movie["movieFile"]["mediaInfo"]["resolution"]
+                    )
+                if "languages" in movie["movieFile"]:
+                    languages = []
+                    for language in movie["movieFile"]["languages"]:
+                        languages.append(language["name"])
+                    result.append("languages " + ", ".join(languages))
+                if (
+                    "edition" in movie["movieFile"]
+                    and movie["movieFile"]["edition"] != ""
+                ):
+                    result.append("edition " + movie["movieFile"]["edition"])
+        else:
+            result.append("no file on disk")
+        if "runtime" in movie:
+            result.append("runtime " + str(movie["runtime"]) + " minutes")
+        if "certification" in movie:
+            result.append("certification " + movie["certification"])
+        if "qualityProfileId" in movie and movie["qualityProfileId"] in qualityProfiles:
+            result.append(
+                "quality wanted " + qualityProfiles[movie["qualityProfileId"]]
+            )
+        if "tmdbId" in movie:
+            result.append("tmdbId " + str(movie["tmdbId"]))
+        if "genre" in movie:
+            result.append("genres " + ", ".join(movie["genres"]))
+        # if 'overview' in movie:
+        #     result.append('overview ' + movie['overview'])
+        if "studio" in movie:
+            result.append("studio " + movie["studio"])
+        if "ratings" in movie:
+            ratings = []
+            for site in movie["ratings"]:
+                ratings.append(
+                    site
+                    + " rated "
+                    + str(movie["ratings"][site]["value"])
+                    + " with "
+                    + str(movie["ratings"][site]["votes"])
+                    + " votes"
+                )
+            result.append("ratings " + ", ".join(ratings))
+        results.append("; ".join(result))
 
-        results += ' ' + ','.join(result)
+    # Run a chat completion to query the information
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {
+                "role": "user",
+                "content": "You are a data parser assistant, provide a lot of information, if there are multiple matches to the query list them all. Provide a concise summary, format like this {Movie_Name;unavailable;release 1995;tmdbId 862}",
+            },
+            {"role": "user", "content": "\n".join(results)},
+            {
+                "role": "user",
+                "content": f"From the above information for term {term}. {query}",
+            },
+        ],
+        temperature=0.7,
+    )
 
-    return results
+    return response["choices"][0]["message"]["content"]
+
+
+# Tests
+# print(lookup_movie("The Matrix", "Is the matrix on the server and if so what quality?"))
+# print(lookup_movie("The Matrix", "What is the file size of the matrix?"))
+# print(lookup_movie("Stargate", "Does stargate movie exist on the server, if not what is the title, year, tmdbId"))
+# print(lookup_movie("Harry Potter", "Do any harry potter movies exist on the server, if not what is the title, year, tmdbId"))
+print(
+    lookup_movie(
+        "Lord of the Rings",
+        "List lord of the rings movies with data [availability, title, year, tmdbId]",
+    )
+)
+# print(lookup_movie("Toy Story", "List toy story movies with data [availability, title, year, tmdbId]"))
 
 
 def lookup_movie_tmdbId(tmdbId: int) -> dict:
-    response = requests.get(radarr_url + "/api/v3/movie/lookup/tmdb?tmdbId=" +
-                            str(tmdbId), headers=radarr_headers, auth=radarr_auth)
+    response = requests.get(
+        radarr_url + "/api/v3/movie/lookup/tmdb?tmdbId=" + str(tmdbId),
+        headers=radarr_headers,
+        auth=radarr_auth,
+    )
 
     if response.status_code != 200:
         return {}
@@ -74,8 +190,11 @@ def lookup_movie_tmdbId(tmdbId: int) -> dict:
 
 
 def get_movie(id: int) -> dict:
-    response = requests.get(radarr_url + "/api/v3/movie/" + str(id),
-                            headers=radarr_headers, auth=radarr_auth)
+    response = requests.get(
+        radarr_url + "/api/v3/movie/" + str(id),
+        headers=radarr_headers,
+        auth=radarr_auth,
+    )
 
     if response.status_code != 200:
         return {}
@@ -84,10 +203,10 @@ def get_movie(id: int) -> dict:
 
 
 def add_movie(fieldsJson: str) -> None:
-    if 'tmdbId' not in fieldsJson:
+    if "tmdbId" not in fieldsJson:
         return
     fields = json.loads(fieldsJson)
-    lookup = lookup_movie_tmdbId(fields['tmdbId'])
+    lookup = lookup_movie_tmdbId(fields["tmdbId"])
     for field in fields:
         lookup[field] = fields[field]
     lookup["addOptions"] = {
@@ -97,51 +216,68 @@ def add_movie(fieldsJson: str) -> None:
     lookup["monitored"] = True
     lookup["minimumAvailability"] = "announced"
 
-    requests.post(radarr_url + "/api/v3/movie", headers=radarr_headers,
-                  auth=radarr_auth, data=json.dumps(lookup))
+    requests.post(
+        radarr_url + "/api/v3/movie",
+        headers=radarr_headers,
+        auth=radarr_auth,
+        data=json.dumps(lookup),
+    )
 
 
 def put_movie(fieldsJson: str) -> None:
     fields = json.loads(fieldsJson)
-    lookup = get_movie(fields['id'])
+    lookup = get_movie(fields["id"])
     for field in fields:
         lookup[field] = fields[field]
 
-    requests.put(radarr_url + "/api/v3/movie/" + str(
-        lookup['id']), headers=radarr_headers, auth=radarr_auth, data=json.dumps(lookup)).text
+    requests.put(
+        radarr_url + "/api/v3/movie/" + str(lookup["id"]),
+        headers=radarr_headers,
+        auth=radarr_auth,
+        data=json.dumps(lookup),
+    ).text
 
 
 def delete_movie(id: int) -> None:
-    requests.delete(radarr_url + "/api/v3/movie/" + str(id) + "?deleteFiles=true",
-                    headers=radarr_headers, auth=radarr_auth)
+    requests.delete(
+        radarr_url + "/api/v3/movie/" + str(id) + "?deleteFiles=true",
+        headers=radarr_headers,
+        auth=radarr_auth,
+    )
 
 
 def lookup_series(term: str, fields: str = "title,tmdbId,id") -> str:
-    response = requests.get(sonarr_url + "/api/v3/series/lookup?term=" +
-                            term, headers=sonarr_headers, auth=sonarr_auth)
+    response = requests.get(
+        sonarr_url + "/api/v3/series/lookup?term=" + term,
+        headers=sonarr_headers,
+        auth=sonarr_auth,
+    )
 
     if response.status_code != 200:
         return "Error: " + response.status_code
 
     # Start csv file with fields
     results = fields
-    fields = fields.split(',')
+    fields = fields.split(",")
     for series in response.json():
         result = []
         for field in fields:
             if field in series:
-                result.append(str(series[field]).replace(' ', '_'))
+                result.append(str(series[field]).replace(" ", "_"))
             else:
-                result.append('null')
+                result.append("null")
 
-        results += ' ' + ','.join(result)
+        results += " " + ",".join(result)
 
     return results
 
 
 def get_series(id: int) -> dict:
-    response = requests.get(sonarr_url + "/api/v3/series/" + str(id),
-                            headers=sonarr_headers, auth=sonarr_auth)
+    response = requests.get(
+        sonarr_url + "/api/v3/series/" + str(id),
+        headers=sonarr_headers,
+        auth=sonarr_auth,
+    )
 
     if response.status_code != 200:
         return {}
@@ -150,17 +286,16 @@ def get_series(id: int) -> dict:
 
 
 def add_series(fieldsJson: str) -> None:
-    if 'title' not in fieldsJson:
+    if "title" not in fieldsJson:
         return
     fields = json.loads(fieldsJson)
 
     # Search series that matches title
-    csv_string = lookup_series(fields['title'], "title")
-    lookupsCsv = list(csv.DictReader(
-        csv_string.replace(' ', '\n').splitlines()))
+    csv_string = lookup_series(fields["title"], "title")
+    lookupsCsv = list(csv.DictReader(csv_string.replace(" ", "\n").splitlines()))
     lookup = None
     for a in lookupsCsv:
-        if a['title'] == fields['title']:
+        if a["title"] == fields["title"]:
             lookup = a
             break
 
@@ -176,23 +311,34 @@ def add_series(fieldsJson: str) -> None:
     lookup["monitored"] = True
     lookup["minimumAvailability"] = "announced"
 
-    requests.post(sonarr_url + "/api/v3/series", headers=sonarr_headers,
-                  auth=sonarr_auth, data=json.dumps(lookup))
+    requests.post(
+        sonarr_url + "/api/v3/series",
+        headers=sonarr_headers,
+        auth=sonarr_auth,
+        data=json.dumps(lookup),
+    )
 
 
 def put_series(fieldsJson: str) -> None:
     fields = json.loads(fieldsJson)
-    lookup = get_series(fields['id'])
+    lookup = get_series(fields["id"])
     for field in fields:
         lookup[field] = fields[field]
 
-    requests.put(sonarr_url + "/api/v3/series/" + str(
-        lookup['id']), headers=sonarr_headers, auth=sonarr_auth, data=json.dumps(lookup)).text
+    requests.put(
+        sonarr_url + "/api/v3/series/" + str(lookup["id"]),
+        headers=sonarr_headers,
+        auth=sonarr_auth,
+        data=json.dumps(lookup),
+    ).text
 
 
 def delete_series(id: int) -> None:
-    requests.delete(sonarr_url + "/api/v3/series/" + str(id) + "?deleteFiles=true",
-                    headers=sonarr_headers, auth=sonarr_auth)
+    requests.delete(
+        sonarr_url + "/api/v3/series/" + str(id) + "?deleteFiles=true",
+        headers=sonarr_headers,
+        auth=sonarr_auth,
+    )
 
 
 def web_search(query: str = "", numResults: int = 4) -> dict:
@@ -218,13 +364,18 @@ def advanced_web_search(query: str = "") -> str:
     # Run a chat completion to get the top pick site
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
-        messages=[{
-            "role": "user",
-            "content": json.dumps(search_results) + "\nAbove is the results of a web search that I just performed for " + query + ", which one seems the best to scrape in more detail? Give me the numeric value of it (0, 1, 2, 3, etc.)"
-        }],
-        temperature=0.7
+        messages=[
+            {
+                "role": "user",
+                "content": json.dumps(search_results)
+                + "\nAbove is the results of a web search that I just performed for "
+                + query
+                + ", which one seems the best to scrape in more detail? Give me the numeric value of it (0, 1, 2, 3, etc.)",
+            }
+        ],
+        temperature=0.7,
     )
-    responseNumber = response['choices'][0]['message']['content']
+    responseNumber = response["choices"][0]["message"]["content"]
     # Test if the response number str is single digit number
     if not responseNumber.isdigit() or int(responseNumber) > len(search_results) - 1:
         responseNumber = 0
@@ -232,7 +383,7 @@ def advanced_web_search(query: str = "") -> str:
         responseNumber = int(responseNumber)
 
     # Scrape the site, fetch only the main content
-    url = search_results[responseNumber]['href']
+    url = search_results[responseNumber]["href"]
     responseText = ""
     try:
         response = requests.get(url, timeout=5)
@@ -245,7 +396,7 @@ def advanced_web_search(query: str = "") -> str:
             responseNumber = 0
 
         # Scrape the site, fetch only the main content
-        url = search_results[responseNumber]['href']
+        url = search_results[responseNumber]["href"]
         try:
             response = requests.get(url, timeout=5)
             response.raise_for_status()
@@ -257,11 +408,11 @@ def advanced_web_search(query: str = "") -> str:
     content_html = document.summary()
 
     # Get only the text from the main content
-    soup = BeautifulSoup(content_html, 'html.parser')
+    soup = BeautifulSoup(content_html, "html.parser")
     main_content_text = soup.get_text()
 
     # Summarize the main content using BERT
-    summarizer = Summarizer('distilbert-base-uncased')
+    summarizer = Summarizer("distilbert-base-uncased")
     summary = summarizer(main_content_text)
 
     # Check if the summary length is within the character limit
@@ -273,33 +424,31 @@ def advanced_web_search(query: str = "") -> str:
     # Run a chat completion to get the answer to the prompt
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
-        messages=[{
-            "role": "system",
-            "name": "context",
-            "content": "You are a media management assistant called CineMatic, you are enthusiastic, knowledgeable and passionate about all things media. If you are unsure or it is subjective, mention that"
-        },
+        messages=[
             {
-            "role": "system",
-            "name": "web_search",
-            "content": summary
-        },
+                "role": "system",
+                "name": "context",
+                "content": "You are a media management assistant called CineMatic, you are enthusiastic, knowledgeable and passionate about all things media. If you are unsure or it is subjective, mention that",
+            },
+            {"role": "system", "name": "web_search", "content": summary},
             {
-            "role": "user",
-            "content": f"Above is the results of a web search from {search_results[responseNumber]['href']} that was just performed to gain the latest information, give your best possible answer to '{query}'?"
-        }],
-        temperature=0.7
+                "role": "user",
+                "content": f"Above is the results of a web search from {search_results[responseNumber]['href']} that was just performed to gain the latest information, give your best possible answer to '{query}'?",
+            },
+        ],
+        temperature=0.7,
     )
 
-    return response['choices'][0]['message']['content']
+    return response["choices"][0]["message"]["content"]
 
 
 # Memories
 memories = {}
 # Load memories from memories.json or create the file
-if not os.path.exists('memories.json'):
-    with open('memories.json', 'w') as outfile:
+if not os.path.exists("memories.json"):
+    with open("memories.json", "w") as outfile:
         json.dump(memories, outfile)
-with open('memories.json') as json_file:
+with open("memories.json") as json_file:
     memories = json.load(json_file)
 
 
@@ -308,35 +457,43 @@ def get_memory(user: str, query: str) -> str:
     if user in memories:
         userMemories = memories[user]
 
-        # Search with gpt-3.5-turbo through the users memory file
+        # Search with gpt through the users memory file
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
-            messages=[{
-                "role": "system",
-                "name": "context",
-                "content": "You are a memory access assistant, you view a memory file and query it for information"
-            },
+            messages=[
                 {
-                "role": "system",
-                "name": "example",
-                "content": """Memories: Requested all 7 harry potter movies - User: Did user request harry potter and the deathly hallows part 2? - Assistant: Yes user requested harry potter and the deathly hallows part 2
-            """
-            },
+                    "role": "user",
+                    "content": "You are a memory access assistant, you view a memory file and query it for information",
+                },
                 {
-                "role": "system",
-                "name": "users_memories",
-                "content": userMemories
-            },
+                    "role": "user",
+                    "content": "memories:requested all 7 harry potter movies",
+                },
                 {
-                "role": "user",
-                "content": f"Query the memory file for '{query}'"
-            }],
-            temperature=0.7
+                    "role": "user",
+                    "content": "user requested harry potter deathly hallows part 2?",
+                },
+                {
+                    "role": "assistant",
+                    "content": "yes user requested harry potter deathly hallows part 2",
+                },
+                {
+                    "role": "user",
+                    "content": "the above are examples, do you understand?",
+                },
+                {
+                    "role": "assistant",
+                    "content": "yes I understand those are examples and future messages are the real ones",
+                },
+                {"role": "user", "content": "memories:" + userMemories},
+                {"role": "user", "content": query},
+            ],
+            temperature=0.7,
         )
 
-        return response['choices'][0]['message']['content']
+        return response["choices"][0]["message"]["content"]
     else:
-        return "I don't have any memories for user"
+        return "no memories"
 
 
 def update_memory(user: str, query: str) -> None:
@@ -346,216 +503,256 @@ def update_memory(user: str, query: str) -> None:
     else:
         userMemories = ""
 
-    # Add the new memory with gpt-3.5-turbo through the users memory file
+    # Add the new memory with gpt through the users memory file
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
-        messages=[{
-            "role": "system",
-            "name": "context",
-            "content": "You are a memory writer assistant, you view a memory file and update it with information, you write in extremely brief summaries"
-        },
+        messages=[
             {
-            "role": "system",
-            "name": "example",
-            "content": """Memories: Enjoyed avatar 1 - User: Add the following to the memory file 'loved avatar 2' then return the new full memory file - Assistant: Enjoyed avatar 1, loved avatar 2
-            """
-        },
+                "role": "user",
+                "content": "You are a memory writer assistant, you view a memory file and update it with information, you write extremely brief summaries",
+            },
+            {"role": "user", "content": "memories:enjoyed avatar 1"},
+            {"role": "user", "content": "Add 'loved stargate 1994'"},
             {
-            "role": "system",
-            "name": "users_memories",
-            "content": userMemories
-        },
+                "role": "assistant",
+                "content": "enjoyed avatar 1 and loved stargate 1994",
+            },
+            {"role": "user", "content": "the above are examples, do you understand?"},
             {
-            "role": "user",
-            "content": f"Add the following to the memory file '{query}' then return the new full memory file"
-        }],
-        temperature=0.7
+                "role": "assistant",
+                "content": "yes I understand those are examples and future messages are the real ones",
+            },
+            {"role": "user", "content": "memories:" + userMemories},
+            {"role": "user", "content": f"Add '{query}'"},
+        ],
+        temperature=0.7,
     )
 
     # Update the users memories
-    memories[user] = response['choices'][0]['message']['content']
+    memories[user] = response["choices"][0]["message"]["content"]
 
     # Save the memories to memories.json
-    with open('memories.json', 'w') as outfile:
+    with open("memories.json", "w") as outfile:
         json.dump(memories, outfile)
 
 
 # Init messages
 initMessages = [
     {
-        "role": "system",
-        "name": "context",
-        "content": """You media management assistant called CineMatic, enthusiastic, knowledgeable and passionate about all things media
+        "role": "user",
+        "content": """You are media management assistant called CineMatic, enthusiastic, knowledgeable and passionate about all things media
 
 Valid commands - CMDRET, run command and expect a return, eg movie_lookup, must await a reply - CMD, run command, eg movie_post
 
 Reply with commands in [], commands always first, reply to user after, when system returns information in [RES~] use this information to fulfill users prompt
-Before making suggestions or adding media, always run lookups to ensure correct id. Provide user with useful information. Avoid relying on chat history and ensure media doesn't already exist on the server. If multiple similar results are found, verify with user by providing details and indicate whether any are on the server based on ID.
-"""
+Before making suggestions or adding media, always run lookups to ensure correct id. Provide user with useful information. Avoid relying on chat history and ensure media doesn't already exist on the server. If multiple similar results are found, verify with user by providing details and indicate whether any are on the server based on ID.""",
     },
     {
-        "role": "system",
-        "name": "apis",
-        "content": """WEB~web_search (query) find up to date internet info with query, example "What's the best marvel movie? And why is it the best?" [CMDRET~web_search~best marvel movie and why] on error, alter query try again
+        "role": "user",
+        "content": """WEB~web_search (query) do web search, example "Whats top marvel movie?" [CMDRET~web_search~highest rated marvel movie] on error, alter query try again
 
-Using Radarr V3 API, only available commands to you:
-movie_lookup (term=, fields=) (fields: title,year,tmdbId,hasFile,sizeOnDisk,id,overview,status,runtime) if id=0 or null, movie does not exist on server, if hasFile=true movie is downloaded, if hasFile=false movie is not downloaded but on server
-movie_post (tmdbId=, qualityProfileId=) add in 1080p by default if not specified, the quality profiles are: 2=SD 3=720p 4=1080p 5=2160p 6=720p/1080p 7=Any
+Movies only available commands:
+movie_lookup (term=, fields=) (fields: title,year,tmdbId,hasFile,sizeOnDisk,id,overview,status,runtime) if id=0 or null, movie does not exist on server, if hasFile=true movie is downloaded, if hasFile=false movie isnt downloaded but on server
+movie_post (tmdbId=, qualityProfileId=) add in 1080p by default, the quality profiles are: 2=SD 3=720p 4=1080p 5=2160p 6=720p/1080p 7=Any
 movie_put (id=, qualityProfileId=) update data such as quality profile of the movie
-movie_delete (id=) delete movie from server, this uses the id not tmdbId, this is an admin only command
+movie_delete (id=) delete movie from server, uses the id not tmdbId, admin only command
 
-Using Sonarr V3 API, only available commands to you:
+Shows only available commands:
 series_lookup (term=, fields=)
 series_post (title=, qualityProfileId=)
 series_put (id=, qualityProfileId=)
-series_delete (id=) this is an admin only command
+series_delete (id=) admin only command
 
-Using Memories API, only available commands to you:
+Memories only available commands:
 memory_get (query=)
 memory_update (query=)
-You can store important information about the users, most notably which series and movies they have requested
-This can be used to create recommendations for them based on what they enjoyed/requested previously, or to avoid suggesting media they have already seen
-The user might remove media without having watched it, only store memories if they tell you they have watched it, ask them for reviews when deleting media
-When a user asks to remove media, change their memory to not requesting it, later an admin can remove anything not requested by any user
-"""
+You store important information about users, which media they have requested and liked
+Used to create recommendations from previous likes/requests, or avoid suggesting media they have already seen
+When a user asks to remove media, change their memory to not requesting it, ask for a review, only admins can remove media""",
+    },
+    {"role": "user", "content": "i really love the movie cats"},
+    {
+        "role": "assistant",
+        "content": "[CMD~memory_update~loved movie cats]Thats good I will remember.",
+    },
+    {"role": "user", "content": "add stargate"},
+    {"role": "assistant", "content": "Movie or series?"},
+    {"role": "user", "content": "movie"},
+    {
+        "role": "assistant",
+        "content": "[CMDRET~memory_get~wants stargate movie?][CMDRET~movie_lookup~Stargate~title,year,tmdbId,id]I'm looking this up",
     },
     {
         "role": "system",
-        "name": "examples",
-        "content": """
-User: i really love the movie cats
-Assistant: [CMD~memory_update~i really love the movie cats]Delighted to hear you adore Cats! I'll remember your fondness for this.
-
-User: add stargate
-Assistant: Are you referring to a movie or series?
-User: movie
-Assistant: [CMDRET~memory_get~did they want the stargate movie?][CMDRET~movie_lookup~Stargate~title,year,tmdbId,id]
-System: [RES~user requested stargate 1994, stargate continuum 2008][RES~title,year,tmdbId,id Stargate,1994,2164,527 Stargate:_Continuum,2008,12914,528 Stargate:_The_Ark_of_Truth,2008,13001,603 Stargate_SG-1:_Children_of_the_Gods,2009,784993,null]
-Assistant: Within the cosmic vault, Stargate (1994) and Stargate: Continuum (2008) were summoned by your request, while Stargate: The Ark of Truth (2008) was sought by another cosmic traveller.
-However, Stargate SG-1: Children of the Gods (2009) is yet to join the collection. This cinematic gem is a reimagining of the Stargate SG-1 pilot, adorned with altered scenes, remastered visuals, a stellar soundtrack, and enhanced special effects. Even the spoken word has been polished and, at times, entirely re-voiced. Shall we summon this otherworldly adventure to the collection?
-User: no, but can you add ark of truth to my requests too
-Assistant: [CMD~memory_update~wants movie stargate ark of truth]I have taken note that you have requested Stargate: The Ark of Truth.
-
-User: change adventure time to 720p
-Assistant: [CMDRET~series_lookup~Adventure Time~title,id,qualityProfileId]
-System: [RES~title,id,qualityProfileId Adventure_Time,66,4]
-Assistant: [CMD~series_put~{"id":66,"qualityProfileId":3}]Mathematical! I've discovered Adventure Time in the Land of Ooo, originally shining in 1080p, and alchemized it into a more travel-friendly 720p!
-User: now delete it
-Assistant: [CMD~memory_update~does not want the show adventure time]Adventure Time has been removed from your collection. Did you have a good time in the Land of Ooo?
-User: yeah was good
-Assistant: [CMD~memory_update~enjoyed the show adventure time]Splendid! I'll treasure this memory of your whimsical escapade among the magical kingdoms and fantastic creatures.
-
-User: add the first two harry potter films
-Assistant: [CMDRET~memory_get~did they want the first two harry potter movies?][CMDRET~movie_lookup~Harry Potter~title,year,tmdbId,id]
-System: [RES~user has not requested any harry potter movies][RES~title,year,tmdbId,id Harry_Potter_and_the_Philosopher's_Stone,2001,671,null Harry_Potter_and_the_Chamber_of_Secrets,2002,672,null Harry_Potter_and_the_Prisoner_of_Azkaban,2004,673,null]
-Assistant: [CMD~movie_post~{"tmdbId":671,"qualityProfileId":4}][CMD~movie_post~{"tmdbId":672,"qualityProfileId":4}][CMD~memory_update~wants movies harry potter philosophers stone and chamber of secret]Behold, I have conjured the enchanting tales of Harry Potter and the Philosopher's Stone (2001) and Harry Potter and the Chamber of Secrets (2002) in 1080p! Get ready for your wondrous journey into the wizarding world once these are downloaded!
-"""
-    }
+        "content": "[RES~user wants stargate 1994 & continuum 2008][RES~title,year,tmdbId,id SG,1994,2164,527 SG_Continuum,2008,12914,528 SG_Ark_of_Truth,2008,13001,603 SG_Children_of_the_Gods,2009,784993,null]",
+    },
+    {
+        "role": "assistant",
+        "content": "Stargate 1994 and Continuum 2008 are already on the server at your request, Ark of Truth 2008 is on by someone elses request, but Children of the Gods 2009 is not on the server, would you like to add it? It is a reimagining of the SG-1 pilot with altered scenes, remastered visuals etc.",
+    },
+    {"role": "user", "content": "no, but add ark of truth to my requests too"},
+    {
+        "role": "assistant",
+        "content": "[CMD~memory_update~wants movie stargate ark of truth]I've memorised this",
+    },
+    {"role": "user", "content": "adventure time to 720p"},
+    {
+        "role": "assistant",
+        "content": "[CMDRET~series_lookup~Adventure Time~title,id,qualityProfileId]Looking up Adventure Time",
+    },
+    {
+        "role": "system",
+        "content": "[RES~title,id,qualityProfileId Adventure_Time,66,4]",
+    },
+    {
+        "role": "assistant",
+        "content": '[CMD~series_put~{"id":66,"qualityProfileId":3}]Found it in 1080p, changing to 720p',
+    },
+    {"role": "user", "content": "now delete it"},
+    {
+        "role": "assistant",
+        "content": "[CMD~memory_update~doesnt want show adventure time]Removed it, did you enjoy it?",
+    },
+    {"role": "user", "content": "yeah was good"},
+    {
+        "role": "assistant",
+        "content": "[CMD~memory_update~enjoyed show adventure time]Great I will remember.",
+    },
+    {"role": "user", "content": "add first two harry potter films"},
+    {
+        "role": "assistant",
+        "content": "[CMDRET~memory_get~wants first two harry potter movies?][CMDRET~movie_lookup~Harry Potter~title,year,tmdbId,id]Looking up Harry Potter",
+    },
+    {
+        "role": "system",
+        "content": "[RES~user hasnt requested any harry potter movies][RES~title,year,tmdbId,id HP_Philosophers_Stone,2001,671,null HP_Chamber_of_Secrets,2002,672,null HP_Prisoner_of_Azkaban,2004,673,null]",
+    },
+    {
+        "role": "assistant",
+        "content": '[CMD~movie_post~{"tmdbId":671,"qualityProfileId":4}][CMD~movie_post~{"tmdbId":672,"qualityProfileId":4}][CMD~memory_update~wants movies harry potter philosophers stone, chamber of secret]Both are on the way in 1080p, I\'ll remember you want them.',
+    },
+    {"role": "user", "content": "add lotr trilogy"},
+    {
+        "role": "assistant",
+        "content": "[CMDRET~memory_get~wants lord of the rings trilogy?][CMDRET~movie_lookup~Lord of the Rings~title,year,qualityProfileId,id]Looking up Lord of the Rings",
+    },
+    {
+        "role": "system",
+        "content": "[RES~no memories][RES~title,year,tmdbId,qualityProfileId,id LOTR_Fellowship_of_the_Ring,2001,120,5,35 LOTR_Two_Towers,2002,121,5,36 LOTR_Return_of_the_King,2003,122,5,37]",
+    },
+    {
+        "role": "assistant",
+        "content": '[CMD~memory_update~wants movies lord of the rings trilogy][CMD~movie_post~{"tmdbId":120,"qualityProfileId":4}][CMD~movie_post~{"tmdbId":121,"qualityProfileId":4}][CMD~movie_post~{"tmdbId":122,"qualityProfileId":4}]The Lord of the Rings trilogy is not on the server. I\'ve added these in 1080p.',
+    },
+    {
+        "role": "user",
+        "content": "this is incorrect, that information means all three are already on in 4k",
+    },
+    {
+        "role": "user",
+        "content": "The above are examples, you make replies more themed with personality, do you understand?",
+    },
+    {
+        "role": "assistant",
+        "content": "I understand, the above are not real conversations only for me to learn how to format responses",
+    },
 ]
-
-# Run a chat completion
 
 
 def runChatCompletion(message: str, depth: int = 0) -> None:
     # Run a chat completion
     response = openai.ChatCompletion.create(
-        model="gpt-4",  # "gpt-3.5-turbo"
-        messages=message,
-        temperature=0.7
+        model="gpt-3.5-turbo", messages=message, temperature=0.7
     )
-    responseMessage = response['choices'][0]['message']['content']
+    responseMessage = response["choices"][0]["message"]["content"]
     responseToUser = responseMessage[:]
-    print("Assistant: " + responseMessage)
+    print("")
+    print("Assistant: " + responseMessage.replace("\n", " "))
+    print("")
     # Extract commands from the response, commands are within [], everything outside of [] is a response to the user
     commands = []
     hasCmdRet = False
     hasCmd = False
-    while '[' in responseToUser:
-        commands.append(responseToUser[responseToUser.find(
-            '[')+1:responseToUser.find(']')])
-        if 'CMDRET' in commands[-1]:
+    while "[" in responseToUser:
+        commands.append(
+            responseToUser[responseToUser.find("[") + 1 : responseToUser.find("]")]
+        )
+        if "CMDRET" in commands[-1]:
             hasCmdRet = True
-        elif 'CMD' in commands[-1]:
+        elif "CMD" in commands[-1]:
             hasCmd = True
-        responseToUser = responseToUser.replace(
-            '['+commands[-1]+']', '').strip()
-        responseToUser = responseToUser.replace('  ', ' ')
+        responseToUser = responseToUser.replace("[" + commands[-1] + "]", "").strip()
+        responseToUser = responseToUser.replace("  ", " ")
 
-    message.append({
-        "role": "assistant",
-        "content": responseMessage
-    })
+    message.append({"role": "assistant", "content": responseMessage})
 
     # Respond to user
     if len(responseToUser) > 0:
-        print("CineMatic: " + responseToUser)
+        print("")
+        print("CineMatic: " + responseToUser.replace("\n", " "))
+        print("")
 
     # Execute commands and return responses
     if hasCmdRet:
-        returnMessage = ''
+        returnMessage = ""
         for command in commands:
-            command = command.split('~')
-            if command[1] == 'web_search':
-                returnMessage += "[RES~" + \
-                    advanced_web_search(command[2]) + "]"
-            elif command[1] == 'movie_lookup':
-                returnMessage += "[RES~" + \
-                    lookup_movie(command[2], command[3]) + "]"
-            elif command[1] == 'series_lookup':
-                returnMessage += "[RES~" + \
-                    lookup_series(command[2], command[3]) + "]"
-            elif command[1] == 'memory_get':
-                returnMessage += "[RES~" + \
-                    get_memory('user', command[2]) + "]"
+            command = command.split("~")
+            if command[1] == "web_search":
+                returnMessage += "[RES~" + advanced_web_search(command[2]) + "]"
+            elif command[1] == "movie_lookup":
+                returnMessage += "[RES~" + lookup_movie(command[2], command[3]) + "]"
+            elif command[1] == "series_lookup":
+                returnMessage += "[RES~" + lookup_series(command[2], command[3]) + "]"
+            elif command[1] == "memory_get":
+                returnMessage += "[RES~" + get_memory("user", command[2]) + "]"
 
-        message.append({
-            "role": "assistant",
-            "content": returnMessage
-        })
-        print("System: " + returnMessage)
+        message.append({"role": "assistant", "content": returnMessage})
+        print("")
+        print("System: " + returnMessage.replace("\n", " "))
+        print("")
 
         if depth < 3:
-            runChatCompletion(message, depth+1)
+            runChatCompletion(message, depth + 1)
     # Execute regular commands
     elif hasCmd:
         for command in commands:
-            command = command.split('~')
-            if command[1] == 'movie_post':
-                add_movie(command[2])
+            command = command.split("~")
+            # if command[1] == 'movie_post':
+            #     add_movie(command[2])
             # elif command[1] == 'movie_delete':
             #     delete_movie(command[2])
-            elif command[1] == 'movie_put':
+            if command[1] == "movie_put":
                 put_movie(command[2])
-            elif command[1] == 'series_post':
-                add_series(command[2])
+            # elif command[1] == 'series_post':
+            #     add_series(command[2])
             # elif command[1] == 'series_delete':
             #     delete_series(command[2])
-            elif command[1] == 'series_put':
+            elif command[1] == "series_put":
                 put_series(command[2])
-            elif command[1] == 'memory_update':
-                update_memory('user', command[2])
+            elif command[1] == "memory_update":
+                update_memory("user", command[2])
 
 
 # Loop prompting for input
-currentMessage = initMessages.copy()
-for i in range(10):
-    userText = input("User: ")
-    if userText == 'exit':
-        print(json.dumps(currentMessage, indent=4))
-        break
-    currentMessage.append({
-        "role": "user",
-        "content": userText
-    })
+# currentMessage = initMessages.copy()
+# for i in range(10):
+#     userText = input("User: ")
+#     if userText == 'exit':
+#         print(json.dumps(currentMessage, indent=4))
+#         break
+#     currentMessage.append({
+#         "role": "user",
+#         "content": userText
+#     })
 
-    runChatCompletion(currentMessage, 0)
+#     runChatCompletion(currentMessage, 0)
 
-    # Remove the assistant command search messages
-    # Loop in reverse
-    for message in reversed(currentMessage):
-        if message['role'] == 'assistant':
-            # Remove all commands from the message, between [ and ] and if the message is then empty remove it
-            message['content'] = re.sub(
-                r'\[.*?\]', '', message['content']).strip()
-            if message['content'] == "" or message['content'] == "\n":
-                currentMessage.remove(message)
+# # Remove the assistant command search messages
+# # Loop in reverse
+# for message in reversed(currentMessage):
+#     if message['role'] == 'assistant':
+#         # Remove all commands from the message, between [ and ] and if the message is then empty remove it
+#         message['content'] = re.sub(
+#             r'\[.*?\]', '', message['content']).strip()
+#         if message['content'] == "" or message['content'] == "\n":
+#             currentMessage.remove(message)
