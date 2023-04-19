@@ -18,13 +18,11 @@ logging.basicConfig(level=logging.INFO)
 transformers_logging.set_verbosity(transformers_logging.ERROR)
 
 
-# Read from credentials file
+# API credentials
 credentials = json.loads(open("credentials.json").read())
 
-# Set API key
 openai.api_key = credentials["openai"]
 
-# Get api details
 sonarr_url = credentials["sonarr"]["url"]
 sonarr_headers = {
     "X-Api-Key": credentials["sonarr"]["api"],
@@ -39,8 +37,6 @@ radarr_headers = {
 }
 radarr_auth = (credentials["radarr"]["authuser"], credentials["radarr"]["authpass"])
 
-# APIs
-
 
 def sizeof_fmt(num, suffix="B"):
     """ "Return the human readable size of a file from bytes, e.g. 1024 -> 1KB"""
@@ -51,6 +47,7 @@ def sizeof_fmt(num, suffix="B"):
     return f"{num:.1f}Yi{suffix}"
 
 
+# int to str for quality profiles
 qualityProfiles = {
     2: "SD",
     3: "720p",
@@ -62,12 +59,14 @@ qualityProfiles = {
 
 
 def lookup_movie(term: str, query: str) -> str:
+    """Lookup a movie and return the information, uses ai to parse the information to required relevant to query"""
+
+    # Search radarr
     response = requests.get(
         radarr_url + "/api/v3/movie/lookup?term=" + term,
         headers=radarr_headers,
         auth=radarr_auth,
     )
-
     if response.status_code != 200:
         return "Error: " + response.status_code
 
@@ -75,15 +74,22 @@ def lookup_movie(term: str, query: str) -> str:
     results = []
     for movie in response.json():
         result = []
+        # Basic info
         result.append(movie["title"])
         result.append("status " + movie["status"] + " year " + str(movie["year"]))
         if "id" in movie and movie["id"] != 0:
             result.append("available on the server")
         else:
             result.append("unavailable on the server")
+        if "qualityProfileId" in movie and movie["qualityProfileId"] in qualityProfiles:
+            result.append(
+                "quality wanted " + qualityProfiles[movie["qualityProfileId"]]
+            )
+        if "tmdbId" in movie:
+            result.append("tmdbId " + str(movie["tmdbId"]))
+        # File info
         if "hasFile" in movie and movie["hasFile"] == True:
             result.append("file size " + sizeof_fmt(movie["sizeOnDisk"]))
-            # File info
             if "movieFile" in movie:
                 if (
                     "quality" in movie["movieFile"]
@@ -112,16 +118,11 @@ def lookup_movie(term: str, query: str) -> str:
                     result.append("edition " + movie["movieFile"]["edition"])
         else:
             result.append("no file on disk")
+        # Extra info
         if "runtime" in movie:
             result.append("runtime " + str(movie["runtime"]) + " minutes")
         if "certification" in movie:
             result.append("certification " + movie["certification"])
-        if "qualityProfileId" in movie and movie["qualityProfileId"] in qualityProfiles:
-            result.append(
-                "quality wanted " + qualityProfiles[movie["qualityProfileId"]]
-            )
-        if "tmdbId" in movie:
-            result.append("tmdbId " + str(movie["tmdbId"]))
         if "genre" in movie:
             result.append("genres " + ", ".join(movie["genres"]))
         # if 'overview' in movie:
@@ -177,12 +178,14 @@ print(
 
 
 def lookup_movie_tmdbId(tmdbId: int) -> dict:
+    """Lookup a movie by tmdbId and return the information"""
+
+    # Search radarr
     response = requests.get(
         radarr_url + "/api/v3/movie/lookup/tmdb?tmdbId=" + str(tmdbId),
         headers=radarr_headers,
         auth=radarr_auth,
     )
-
     if response.status_code != 200:
         return {}
 
@@ -190,6 +193,9 @@ def lookup_movie_tmdbId(tmdbId: int) -> dict:
 
 
 def get_movie(id: int) -> dict:
+    """Get a movie by id and return the information"""
+
+    # Search radarr
     response = requests.get(
         radarr_url + "/api/v3/movie/" + str(id),
         headers=radarr_headers,
@@ -203,6 +209,8 @@ def get_movie(id: int) -> dict:
 
 
 def add_movie(fieldsJson: str) -> None:
+    """Add a movie to radarr with the given fields data"""
+
     if "tmdbId" not in fieldsJson:
         return
     fields = json.loads(fieldsJson)
@@ -216,6 +224,7 @@ def add_movie(fieldsJson: str) -> None:
     lookup["monitored"] = True
     lookup["minimumAvailability"] = "announced"
 
+    # Add the movie to radarr
     requests.post(
         radarr_url + "/api/v3/movie",
         headers=radarr_headers,
@@ -225,11 +234,14 @@ def add_movie(fieldsJson: str) -> None:
 
 
 def put_movie(fieldsJson: str) -> None:
+    """Update a movie in radarr with the given fields data"""
+
     fields = json.loads(fieldsJson)
     lookup = get_movie(fields["id"])
     for field in fields:
         lookup[field] = fields[field]
 
+    # Update the movie in radarr
     requests.put(
         radarr_url + "/api/v3/movie/" + str(lookup["id"]),
         headers=radarr_headers,
@@ -239,6 +251,7 @@ def put_movie(fieldsJson: str) -> None:
 
 
 def delete_movie(id: int) -> None:
+    """Delete a movie from radarr"""
     requests.delete(
         radarr_url + "/api/v3/movie/" + str(id) + "?deleteFiles=true",
         headers=radarr_headers,
@@ -453,6 +466,8 @@ with open("memories.json") as json_file:
 
 
 def get_memory(user: str, query: str) -> str:
+    """Get a memory from the users memory file with ai querying"""
+
     # Get users memories
     if user in memories:
         userMemories = memories[user]
@@ -467,11 +482,11 @@ def get_memory(user: str, query: str) -> str:
                 },
                 {
                     "role": "user",
-                    "content": "memories:requested all 7 harry potter movies",
+                    "content": "memories:requested all 7 abc movies",
                 },
                 {
                     "role": "user",
-                    "content": "user requested harry potter deathly hallows part 2?",
+                    "content": "user requested abc movie 2?",
                 },
                 {
                     "role": "assistant",
@@ -497,6 +512,8 @@ def get_memory(user: str, query: str) -> str:
 
 
 def update_memory(user: str, query: str) -> None:
+    """Update a memory in the users memory file with ai"""
+    
     # Get users memories
     if user in memories:
         userMemories = memories[user]
