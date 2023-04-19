@@ -144,6 +144,10 @@ def lookup_movie(term: str, query: str) -> str:
         # Add to results
         results.append("; ".join(result))
 
+        # Only include first 10 results
+        if len(results) >= 10:
+            break
+
     # Run a chat completion to query the information
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
@@ -217,15 +221,11 @@ def get_movie(id: int) -> dict:
     return response.json()
 
 
-def add_movie(fieldsJson: str) -> None:
-    """Add a movie to radarr with the given fields data"""
+def add_movie(tmdbId: int, qualityProfileId: int) -> None:
+    """Add a movie to radarr from tmdbId with the given quality profile"""
 
-    if "tmdbId" not in fieldsJson:
-        return
-    fields = json.loads(fieldsJson)
-    lookup = lookup_movie_tmdbId(fields["tmdbId"])
-    for field in fields:
-        lookup[field] = fields[field]
+    lookup = lookup_movie_tmdbId(tmdbId)
+    lookup["qualityProfileId"] = qualityProfileId
     lookup["addOptions"] = {
         "searchForMovie": True,
     }
@@ -298,8 +298,8 @@ def lookup_series(term: str, query: str) -> str:
             result.append(
                 "quality wanted " + qualityProfiles[series["qualityProfileId"]]
             )
-        if "tmdbId" in series:
-            result.append("tmdbId " + str(series["tmdbId"]))
+        if "tvdbId" in series:
+            result.append("tvdbId " + str(series["tvdbId"]))
         # Extra info
         if "runtime" in series:
             result.append("runtime " + str(series["runtime"]))
@@ -314,13 +314,17 @@ def lookup_series(term: str, query: str) -> str:
         # Add to results
         results.append("; ".join(result))
 
+        # Only include first 10 results
+        if len(results) >= 10:
+            break
+
     # Run a chat completion to query the information
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo",
         messages=[
             {
                 "role": "user",
-                "content": "You are a data parser assistant, provide a lot of information, if there are multiple matches to the query list them all, you also include data for media not available on the server. Provide a concise summary, format like this with key value {Series_Name;unavailable;release 1995;tmdbId 862}",
+                "content": "You are a data parser assistant, provide a lot of information, if there are multiple matches to the query list them all, you also include data for media not available on the server. Provide a concise summary, format like this with key value {Series_Name;unavailable;release 1995;tvdbId 862}",
             },
             {"role": "user", "content": "\n".join(results)},
             {
@@ -337,15 +341,30 @@ def lookup_series(term: str, query: str) -> str:
 # Tests
 # print(
 #     lookup_series(
-#         "Stargate", "List stargate series with data {availability, title, year, tmdbId}"
+#         "Stargate", "List stargate series with data {availability, title, year, tvdbId}"
 #     )
 # )
 # print(
 #     lookup_series(
 #         "Adventure Time",
-#         "List adventure time series with data {availability, title, year, tmdbId, resolution}",
+#         "List adventure time series with data {availability, title, year, tvdbId, resolution}",
 #     )
 # )
+
+
+def lookup_series_tvdbId(tvdbId: int) -> dict:
+    """Lookup a series by tvdbId and return the information"""
+
+    # Search sonarr
+    response = requests.get(
+        sonarr_url + "/api/v3/series/lookup?term=tvdb:" + str(tvdbId),
+        headers=sonarr_headers,
+        auth=sonarr_auth,
+    )
+    if response.status_code != 200:
+        return {}
+
+    return response.json()[0]
 
 
 def get_series(id: int) -> dict:
@@ -361,32 +380,18 @@ def get_series(id: int) -> dict:
     return response.json()
 
 
-def add_series(fieldsJson: str) -> None:
-    if "title" not in fieldsJson:
-        return
-    fields = json.loads(fieldsJson)
+def add_series(tvdbId: int, qualityProfileId: int) -> None:
+    """Add a series to sonarr from tvdbId with the given quality profile"""
 
-    # Search series that matches title
-    csv_string = lookup_series(fields["title"], "title")
-    lookupsCsv = list(csv.DictReader(csv_string.replace(" ", "\n").splitlines()))
-    lookup = None
-    for a in lookupsCsv:
-        if a["title"] == fields["title"]:
-            lookup = a
-            break
-
-    if lookup is None:
-        return
-
-    for field in fields:
-        lookup[field] = fields[field]
-    lookup["addOptions"] = {
-        "searchForMissingEpisodes": True,
-    }
+    lookup = lookup_series_tvdbId(tvdbId)
+    lookup["qualityProfileId"] = qualityProfileId
+    lookup["addOptions"] = {"searchForMissingEpisodes": True}
     lookup["rootFolderPath"] = "/tv"
     lookup["monitored"] = True
     lookup["minimumAvailability"] = "announced"
+    lookup['languageProfileId'] = 1
 
+    # Add the series to sonarr
     requests.post(
         sonarr_url + "/api/v3/series",
         headers=sonarr_headers,
@@ -639,7 +644,7 @@ movie_delete (id=) delete movie from server, uses the id not tmdbId, admin only 
 
 Shows only available commands:
 series_lookup (term=, fields=)
-series_post (title=, qualityProfileId=)
+series_post (tvdbId=, qualityProfileId=)
 series_put (id=, qualityProfileId=)
 series_delete (id=) admin only command
 
@@ -678,11 +683,11 @@ When a user asks to remove media, change their memory to not requesting it, ask 
     {"role": "user", "content": "adventure time to 720p"},
     {
         "role": "assistant",
-        "content": "[CMDRET~series_lookup~Adventure Time~List adventure time series with data {availability, title, year, tmdbId, resolution}]Looking up Adventure Time",
+        "content": "[CMDRET~series_lookup~Adventure Time~List adventure time series with data {availability, title, year, tvdbId, resolution}]Looking up Adventure Time",
     },
     {
         "role": "system",
-        "content": "[RES~Adventure Time; available on the server; year 2010; tmdbId 15260; resolution 1080p\Adventure Time: Fionna and Cake; unavailable on the server; year 0; tmdbId N/A; resolution N/A]",
+        "content": "[RES~Adventure Time; available on the server; year 2010; tvdbId 152831; resolution 1080p\Adventure Time: Fionna and Cake; unavailable on the server; year 0; tvdbId N/A; resolution N/A]",
     },
     {
         "role": "assistant",
@@ -709,7 +714,7 @@ When a user asks to remove media, change their memory to not requesting it, ask 
     },
     {
         "role": "assistant",
-        "content": '[CMD~memory_update~wants movies harry potter philosophers stone, chamber of secret][CMD~movie_post~{"tmdbId":671,"qualityProfileId":4}][CMD~movie_post~{"tmdbId":672,"qualityProfileId":4}]Both are on the way in 1080p, Ill remember you want them.',
+        "content": "[CMD~memory_update~wants movies harry potter philosophers stone, chamber of secret][CMD~movie_post~671~4][CMD~movie_post~672~4]Both are on the way in 1080p, Ill remember you want them.",
     },
     {"role": "user", "content": "add lotr trilogy"},
     {
@@ -793,14 +798,14 @@ def runChatCompletion(message: str, depth: int = 0) -> None:
     elif hasCmd:
         for command in commands:
             command = command.split("~")
-            if command[1] == 'movie_post':
-                add_movie(command[2])
+            if command[1] == "movie_post":
+                add_movie(command[2], command[3])
             # elif command[1] == 'movie_delete':
             #     delete_movie(command[2])
             elif command[1] == "movie_put":
                 put_movie(command[2])
-            elif command[1] == 'series_post':
-                add_series(command[2])
+            elif command[1] == "series_post":
+                add_series(command[2], command[3])
             # elif command[1] == 'series_delete':
             #     delete_series(command[2])
             elif command[1] == "series_put":
@@ -813,12 +818,9 @@ def runChatCompletion(message: str, depth: int = 0) -> None:
 currentMessage = initMessages.copy()
 for i in range(10):
     userText = input("User: ")
-    if userText == 'exit':
+    if userText == "exit":
         print(json.dumps(currentMessage, indent=4))
         break
-    currentMessage.append({
-        "role": "user",
-        "content": userText
-    })
+    currentMessage.append({"role": "user", "content": userText})
 
     runChatCompletion(currentMessage, 0)
