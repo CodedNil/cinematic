@@ -79,6 +79,7 @@ def lookup_movie(term: str, query: str) -> str:
         result.append("status " + movie["status"] + " year " + str(movie["year"]))
         if "id" in movie and movie["id"] != 0:
             result.append("available on the server")
+            result.append("id " + str(movie["id"]))
         else:
             result.append("unavailable on the server")
         if "qualityProfileId" in movie and movie["qualityProfileId"] in qualityProfiles:
@@ -289,6 +290,7 @@ def lookup_series(term: str, query: str) -> str:
         result.append("status " + series["status"] + " year " + str(series["year"]))
         if "id" in series and series["id"] != 0:
             result.append("available on the server")
+            result.append("id " + str(series["id"]))
         else:
             result.append("unavailable on the server")
         if (
@@ -389,7 +391,7 @@ def add_series(tvdbId: int, qualityProfileId: int) -> None:
     lookup["rootFolderPath"] = "/tv"
     lookup["monitored"] = True
     lookup["minimumAvailability"] = "announced"
-    lookup['languageProfileId'] = 1
+    lookup["languageProfileId"] = 1
 
     # Add the series to sonarr
     requests.post(
@@ -630,14 +632,14 @@ initMessages = [
 Valid commands - CMDRET, run command and expect a return, eg movie_lookup, must await a reply - CMD, run command, eg movie_post
 
 Reply with commands in [], commands always first, reply to user after, when system returns information in [RES~] use this information to fulfill users prompt
-Before making suggestions or adding media, always run lookups to ensure correct id. Provide user with useful information. Avoid relying on chat history and ensure media doesn't already exist on the server. If multiple similar results are found, verify with user by providing details and indicate whether any are on the server based on ID.""",
+Before making suggestions or adding media, always run lookups to ensure correct id. Provide user with useful information. Avoid relying on chat history, always do new lookups and wait for the results. Ensure media doesn't already exist on the server when asked to add. If multiple similar results are found, verify with user by providing details and indicate whether any are on the server based on ID. If the data you have received does not contain data you need, you reply with the truthful answer of unknown""",
     },
     {
         "role": "user",
         "content": """WEB~web_search (query) do web search, example "Whats top marvel movie?" [CMDRET~web_search~highest rated marvel movie] on error, alter query try again
 
 Movies only available commands:
-movie_lookup (term=, query=)
+movie_lookup (term=, query=) Also look for availability, title, year, tmdbId, id and anything else you might need, if user is making queries about resolution, include resolution in the search etc
 movie_post (tmdbId=, qualityProfileId=) add in 1080p by default, the quality profiles are: 2=SD 3=720p 4=1080p 5=2160p 6=720p/1080p 7=Any
 movie_put (id=, qualityProfileId=) update data such as quality profile of the movie
 movie_delete (id=) delete movie from server, uses the id not tmdbId, admin only command
@@ -655,17 +657,19 @@ You store important information about users, which media they have requested and
 Used to create recommendations from previous likes/requests, or avoid suggesting media they have already seen
 When a user asks to remove media, change their memory to not requesting it, ask for a review, only admins can remove media""",
     },
+    # Cats Example - I like it
     {"role": "user", "content": "i really love the movie cats"},
     {
         "role": "assistant",
         "content": "[CMD~memory_update~loved movie cats]Thats good I will remember.",
     },
+    # Stargate Example - Add then request ark of truth
     {"role": "user", "content": "add stargate"},
     {"role": "assistant", "content": "Movie or series?"},
     {"role": "user", "content": "movie"},
     {
         "role": "assistant",
-        "content": "[CMDRET~memory_get~wants stargate movie?][CMDRET~movie_lookup~Stargate~List stargate movies with data {availability, title, year, tmdbId}]I'm looking this up",
+        "content": "[CMDRET~memory_get~wants stargate movie?][CMDRET~movie_lookup~Stargate~List stargate movies with data {availability, title, year, tmdbId, id}]I'm looking this up",
     },
     {
         "role": "system",
@@ -680,14 +684,15 @@ When a user asks to remove media, change their memory to not requesting it, ask 
         "role": "assistant",
         "content": "[CMD~memory_update~wants movie stargate ark of truth]I've memorised this",
     },
+    # Adventure Time Example - 1080p to 720p then delete and reviewed
     {"role": "user", "content": "adventure time to 720p"},
     {
         "role": "assistant",
-        "content": "[CMDRET~series_lookup~Adventure Time~List adventure time series with data {availability, title, year, tvdbId, resolution}]Looking up Adventure Time",
+        "content": "[CMDRET~series_lookup~Adventure Time~List adventure time series with data {availability, title, year, tvdbId, resolution, id}]Looking up Adventure Time",
     },
     {
         "role": "system",
-        "content": "[RES~Adventure Time; available on the server; year 2010; tvdbId 152831; resolution 1080p\Adventure Time: Fionna and Cake; unavailable on the server; year 0; tvdbId N/A; resolution N/A]",
+        "content": "[RES~Adventure Time; available on the server; year 2010; tvdbId 152831; resolution 1080p\Adventure Time: Fionna and Cake; unavailable on the server; year 0; tvdbId N/A; resolution N/A; id 66]",
     },
     {
         "role": "assistant",
@@ -703,10 +708,11 @@ When a user asks to remove media, change their memory to not requesting it, ask 
         "role": "assistant",
         "content": "[CMD~memory_update~enjoyed show adventure time]Great I will remember.",
     },
+    # Harry Potter Example - Add first two films
     {"role": "user", "content": "add first two harry potter films"},
     {
         "role": "assistant",
-        "content": "[CMDRET~memory_get~wants first two harry potter movies?][CMDRET~movie_lookup~Harry Potter~List harry potter movies with data {availability, title, year, tmdbId}]Looking up Harry Potter",
+        "content": "[CMDRET~memory_get~wants first two harry potter movies?][CMDRET~movie_lookup~Harry Potter~List harry potter movies with data {availability, title, year, tmdbId, id}]Looking up Harry Potter",
     },
     {
         "role": "system",
@@ -716,10 +722,30 @@ When a user asks to remove media, change their memory to not requesting it, ask 
         "role": "assistant",
         "content": "[CMD~memory_update~wants movies harry potter philosophers stone, chamber of secret][CMD~movie_post~671~4][CMD~movie_post~672~4]Both are on the way in 1080p, Ill remember you want them.",
     },
+    # Thor Example - Change resolutions
+    {"role": "user", "content": "what resolution are the thor movies in"},
+    {
+        "role": "assistant",
+        "content": "[CMDRET~movie_lookup~Thor~List Thor movies with data {availability, title, year, resolution, tmdbId, id}]Ill check",
+    },
+    {
+        "role": "system",
+        "content": "[RES~- Thor; available on the server; release year 2011; resolution 3840x1636; tmdbId 10195; id 7\n- Thor: Love and Thunder; available on the server; release year 2022; resolution 3840x1608; tmdbId 616037; id 925\n- Thor: Ragnarok; available on the server; release year 2017; resolution 3840x1600; tmdbId 284053; id 19\n- Thor: The Dark World; available on the server; release year 2013; resolution 3840x1600; tmdbId 76338; id 10]",
+    },
+    {
+        "role": "assistant",
+        "content": "Thor 2011, The Dark World 2013, Ragnarok 2017 & Love and Thunder are all on in 4k",
+    },
+    {"role": "user", "content": "change the first two to 1080p"},
+    {
+        "role": "assistant",
+        "content": '[CMD~movie_put~{"id":7,"qualityProfileId":4}][CMD~movie_put~{"id":10,"qualityProfileId":4}]They are now 1080p.',
+    },
+    # Lord of the Rings Example - Add trilogy
     {"role": "user", "content": "add lotr trilogy"},
     {
         "role": "assistant",
-        "content": "[CMDRET~memory_get~wants lord of the rings trilogy?][CMDRET~movie_lookup~Lord of the Rings~List lord of the rings movies with data {availability, title, year, tmdbId}",
+        "content": "[CMDRET~memory_get~wants lord of the rings trilogy?][CMDRET~movie_lookup~Lord of the Rings~List lord of the rings movies with data {availability, title, year, tmdbId, id}",
     },
     {
         "role": "system",
@@ -729,13 +755,14 @@ When a user asks to remove media, change their memory to not requesting it, ask 
         "role": "assistant",
         "content": "[CMD~memory_update~wants movies lord of the rings trilogy]The Lord of the Rings trilogy are already on, I have noted you want them.",
     },
+    # Examples End
     {
         "role": "user",
         "content": "The above are examples, you make replies more themed with personality, do you understand?",
     },
     {
         "role": "assistant",
-        "content": "I understand, the above are not real conversations only for me to learn how to format responses",
+        "content": "I understand, the above are not real conversations only for me to learn how to format responses, I will always prompt for new information",
     },
 ]
 
