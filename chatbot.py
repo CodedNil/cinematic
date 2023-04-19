@@ -141,6 +141,7 @@ def lookup_movie(term: str, query: str) -> str:
                     + " votes"
                 )
             result.append("ratings " + ", ".join(ratings))
+        # Add to results
         results.append("; ".join(result))
 
     # Run a chat completion to query the information
@@ -267,30 +268,84 @@ def delete_movie(id: int) -> None:
     )
 
 
-def lookup_series(term: str, fields: str = "title,tmdbId,id") -> str:
+def lookup_series(term: str, query: str) -> str:
+    """Lookup a series and return the information, uses ai to parse the information to required relevant to query"""
+
+    # Search sonarr
     response = requests.get(
         sonarr_url + "/api/v3/series/lookup?term=" + term,
         headers=sonarr_headers,
         auth=sonarr_auth,
     )
-
     if response.status_code != 200:
         return "Error: " + response.status_code
 
-    # Start csv file with fields
-    results = fields
-    fields = fields.split(",")
+    # Convert to plain english
+    results = []
     for series in response.json():
         result = []
-        for field in fields:
-            if field in series:
-                result.append(str(series[field]).replace(" ", "_"))
-            else:
-                result.append("null")
+        # Basic info
+        result.append(series["title"])
+        result.append("status " + series["status"] + " year " + str(series["year"]))
+        if "id" in series and series["id"] != 0:
+            result.append("available on the server")
+        else:
+            result.append("unavailable on the server")
+        if (
+            "qualityProfileId" in series
+            and series["qualityProfileId"] in qualityProfiles
+        ):
+            result.append(
+                "quality wanted " + qualityProfiles[series["qualityProfileId"]]
+            )
+        if "tmdbId" in series:
+            result.append("tmdbId " + str(series["tmdbId"]))
+        # Extra info
+        if "runtime" in series:
+            result.append("runtime " + str(series["runtime"]))
+        if "airTime" in series:
+            result.append("airTime " + str(series["airTime"]))
+        if "network" in series:
+            result.append("network " + str(series["network"]))
+        if "certification" in series:
+            result.append("certification " + str(series["certification"]))
+        if "genre" in series:
+            result.append("genres " + ", ".join(series["genres"]))
+        # Add to results
+        results.append("; ".join(result))
 
-        results += " " + ",".join(result)
+    # Run a chat completion to query the information
+    response = openai.ChatCompletion.create(
+        model="gpt-3.5-turbo",
+        messages=[
+            {
+                "role": "user",
+                "content": "You are a data parser assistant, provide a lot of information, if there are multiple matches to the query list them all, you also include data for media not available on the server. Provide a concise summary, format like this with key value {Series_Name;unavailable;release 1995;tmdbId 862}",
+            },
+            {"role": "user", "content": "\n".join(results)},
+            {
+                "role": "user",
+                "content": f"From the above information for term {term}. {query}",
+            },
+        ],
+        temperature=0.7,
+    )
 
-    return results
+    return response["choices"][0]["message"]["content"]
+
+
+# Tests
+print(
+    lookup_series(
+        "Stargate", "List stargate series with data {availability, title, year, tmdbId}"
+    )
+)
+print(
+    lookup_series(
+        "Adventure Time",
+        "List adventure time series with data {availability, title, year, tmdbId, resolution}",
+    )
+)
 
 
 def get_series(id: int) -> dict:
@@ -621,28 +676,28 @@ When a user asks to remove media, change their memory to not requesting it, ask 
         "content": "[CMD~memory_update~wants movie stargate ark of truth]I've memorised this",
     },
     {"role": "user", "content": "adventure time to 720p"},
-    # {
-    #     "role": "assistant",
-    #     "content": "[CMDRET~series_lookup~Adventure Time~title,id,qualityProfileId]Looking up Adventure Time",
-    # },
-    # {
-    #     "role": "system",
-    #     "content": "[RES~title,id,qualityProfileId Adventure_Time,66,4]",
-    # },
-    # {
-    #     "role": "assistant",
-    #     "content": '[CMD~series_put~{"id":66,"qualityProfileId":3}]Found it in 1080p, changing to 720p',
-    # },
-    # {"role": "user", "content": "now delete it"},
-    # {
-    #     "role": "assistant",
-    #     "content": "[CMD~memory_update~doesnt want show adventure time]Removed it, did you enjoy it?",
-    # },
-    # {"role": "user", "content": "yeah was good"},
-    # {
-    #     "role": "assistant",
-    #     "content": "[CMD~memory_update~enjoyed show adventure time]Great I will remember.",
-    # },
+    {
+        "role": "assistant",
+        "content": "[CMDRET~series_lookup~Adventure Time~List adventure time series with data {availability, title, year, tmdbId, resolution}]Looking up Adventure Time",
+    },
+    {
+        "role": "system",
+        "content": "[RES~Adventure Time; available on the server; year 2010; tmdbId 15260; resolution 1080p\Adventure Time: Fionna and Cake; unavailable on the server; year 0; tmdbId N/A; resolution N/A]",
+    },
+    {
+        "role": "assistant",
+        "content": '[CMD~series_put~{"id":66,"qualityProfileId":3}]Found it in 1080p, changing to 720p',
+    },
+    {"role": "user", "content": "now delete it"},
+    {
+        "role": "assistant",
+        "content": "[CMD~memory_update~doesnt want show adventure time]Removed it, did you enjoy it?",
+    },
+    {"role": "user", "content": "yeah was good"},
+    {
+        "role": "assistant",
+        "content": "[CMD~memory_update~enjoyed show adventure time]Great I will remember.",
+    },
     {"role": "user", "content": "add first two harry potter films"},
     {
         "role": "assistant",
@@ -727,7 +782,7 @@ def runChatCompletion(message: str, depth: int = 0) -> None:
             elif command[1] == "memory_get":
                 returnMessage += "[RES~" + get_memory("user", command[2]) + "]"
 
-        message.append({"role": "assistant", "content": returnMessage})
+        message.append({"role": "system", "content": returnMessage})
         print("")
         print("System: " + returnMessage.replace("\n", " "))
         print("")
