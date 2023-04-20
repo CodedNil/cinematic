@@ -70,6 +70,10 @@ def lookup_movie(term: str, query: str) -> str:
     if response.status_code != 200:
         return "Error: " + response.status_code
 
+    # If no results, return
+    if len(response.json()) == 0:
+        return "No results"
+
     # Convert to plain english
     results = []
     for movie in response.json():
@@ -258,6 +262,10 @@ def lookup_series(term: str, query: str) -> str:
     )
     if response.status_code != 200:
         return "Error: " + response.status_code
+
+    # If no results, return
+    if len(response.json()) == 0:
+        return "No results"
 
     # Convert to plain english
     results = []
@@ -616,23 +624,23 @@ Before making suggestions or adding media, always run lookups to ensure correct 
     },
     {
         "role": "user",
-        "content": """WEB~web_search (query) do web search, example "Whats top marvel movie?" [CMDRET~web_search~highest rated marvel movie] on error, alter query try again
+        "content": """CMDRET web_search (query) do web search, on error alter query try again
 
 Movies only available commands:
-movie_lookup (term=, query=) Always look for availability;title;year;tmdbId;id and anything else you might need, if user is making queries about resolution, include resolution in the search etc
-movie_post (tmdbId=, qualityProfileId=) add in 1080p by default, the quality profiles are: 2=SD 3=720p 4=1080p 5=2160p 6=720p/1080p 7=Any
-movie_put (id=, qualityProfileId=) update data such as quality profile of the movie
-movie_delete (id=) delete movie from server, uses the id not tmdbId, admin only command
+CMDRET movie_lookup (term=, query=) Always look for availability;title;year;tmdbId;id and anything else you might need, if user is making queries about resolution, include resolution in the search etc
+CMD movie_post (tmdbId=, qualityProfileId=) add in 1080p by default, the quality profiles are: 2=SD 3=720p 4=1080p 5=2160p 6=720p/1080p 7=Any
+CMD movie_put (id=, qualityProfileId=) update data such as quality profile of the movie
+CMD movie_delete (id=) delete movie from server, uses the id not tmdbId, admin only command
 
 Shows only available commands:
-series_lookup (term=, fields=)
-series_post (tvdbId=, qualityProfileId=)
-series_put (id=, qualityProfileId=)
-series_delete (id=) admin only command
+CMDRET series_lookup (term=, fields=)
+CMD series_post (tvdbId=, qualityProfileId=)
+CMD series_put (id=, qualityProfileId=)
+CMD series_delete (id=) admin only command
 
 Memories only available commands:
-memory_get (query=)
-memory_update (query=)
+CMDRET memory_get (query=)
+CMD memory_update (query=)
 You store important information about users, which media they have requested and liked
 Used to create recommendations from previous likes/requests, or avoid suggesting media they have already seen
 When a user asks to remove media, change their memory to not requesting it, ask for a review, only admins can remove media""",
@@ -641,15 +649,15 @@ When a user asks to remove media, change their memory to not requesting it, ask 
     {"role": "user", "content": "i really love the movie animals"},
     {
         "role": "assistant",
-        "content": "[CMD~memory_update~loved movie animals]Thats good I will remember.",
+        "content": "[THOUGHTS~I should note the users likes][CMD~memory_update~loved movie animals]Thats good I will remember.",
     },
     # Example - Add movies Stingate that already exist on server, then request in memory wanting an extra one
     {"role": "user", "content": "add stingate"},
-    {"role": "assistant", "content": "Movie or series?"},
+    {"role": "assistant", "content": "[THOUGHTS~There are movies and series under this name, I should verify with the user]Movie or series?"},
     {"role": "user", "content": "movie"},
     {
         "role": "assistant",
-        "content": "[CMDRET~memory_get~wants stingate movie?][CMDRET~movie_lookup~Stingate~List stingate movies with data {title;availability;year;tmdbId;id}]I'm looking this up",
+        "content": "[THOUGHTS~I should lookup the stingate movies, and check if the user has requested any already][CMDRET~memory_get~wants stingate movie?][CMDRET~movie_lookup~Stingate~{title;availability;year;tmdbId;id}]I'm looking this up",
     },
     {
         "role": "system",
@@ -657,18 +665,18 @@ When a user asks to remove media, change their memory to not requesting it, ask 
     },
     {
         "role": "assistant",
-        "content": "Stingate 1995 and Stingate 2007 are already on the server at your request, Ark 2007 is on at someone elses request. Angel Kids 2010 is not on the server, would you like to add it? It is a reimagining of the Stingate Pilot with altered scenes, remastered visuals etc.",
+        "content": "[THOUGHTS~3 out of 4 movies are already on the server, user only requested 2 of them, I should ask if user wants the fourth added and provide a few details]Stingate 1995 and Stingate 2007 are already on the server at your request, Ark 2007 is on at someone elses request. Angel Kids 2010 is not on the server, would you like to add it? It is a reimagining of the Stingate Pilot with altered scenes, remastered visuals etc.",
     },
     {"role": "user", "content": "no, but add ark to my requests too"},
     {
         "role": "assistant",
-        "content": "[CMD~memory_update~wants movie stingate ark]I've memorised this",
+        "content": "[THOUGHTS~I should note the user wants the movie stingate ark][CMD~memory_update~wants movie stingate ark]I've memorised this",
     },
     # Example - Series Silly Times 1080p to 720p then delete and reviewed
     {"role": "user", "content": "silly times to 720p"},
     {
         "role": "assistant",
-        "content": "[CMDRET~series_lookup~Silly Times~List silly times series with data {title;availability;year;tvdbId;wantedQuality;id}]Looking up Silly Times",
+        "content": "[THOUGHTS~I should lookup the silly times series][CMDRET~series_lookup~Silly Times~{title;availability;year;tvdbId;wantedQuality;id}]Looking up Silly Times",
     },
     {
         "role": "system",
@@ -676,23 +684,40 @@ When a user asks to remove media, change their memory to not requesting it, ask 
     },
     {
         "role": "assistant",
-        "content": '[CMD~series_put~{"id":63,"qualityProfileId":3}]Found it in 1080p, changing to 720p',
+        "content": '[THOUGHTS~I found the series and its in 1080p, I should change this to 720p which is qualityProfileId 3][CMD~series_put~{"id":63,"qualityProfileId":3}]Found it in 1080p, changing to 720p',
     },
     {"role": "user", "content": "now delete it"},
     {
         "role": "assistant",
-        "content": "[CMD~memory_update~doesnt want show silly times]Removed it, did you enjoy it?",
+        "content": "[THOUGHTS~I should remove the series from the users memory, and ask them for a review][CMD~memory_update~doesnt want show silly times]Removed it, did you enjoy it?",
     },
     {"role": "user", "content": "yeah was good"},
     {
         "role": "assistant",
-        "content": "[CMD~memory_update~enjoyed show silly times]Great I will remember.",
+        "content": "[THOUGHTS~I should remember that the user enjoyed it, nothing more to do][CMD~memory_update~enjoyed show silly times]Great I will remember.",
+    },
+    # Example - Whats the highest rated silly cinematic universe movie
+    {
+        "role": "user",
+        "content": "what is the highest rated silly cinematic universe movie",
+    },
+    {
+        "role": "assistant",
+        "content": "[THOUGHTS~I should search the web for a list of the highest rated movies in this collection][CMDRET~web_search~highest rated silly cinematic universe movie]Looking up Silly Cinematic Universe",
+    },
+    {
+        "role": "system",
+        "content": "[RES~Captain Silly: The First Silly Hero 2021 is often considered the best movie in the universe so far, it is considered to be a step up in quality because of its more gritty and realistic approach with intense action packed CGI]",
+    },
+    {
+        "role": "assistant",
+        "content": "[THOUGHTS~I have found all the information the user wanted, I should pass it to the user]Captain Silly: The First Silly Hero 2021 is often considered the best movie in the universe so far, it is considered to be a step up in quality because of its more gritty and realistic approach with intense action packed CGI",
     },
     # Example - Add first two Wizard Kid films
     {"role": "user", "content": "add first two wizard kid films"},
     {
         "role": "assistant",
-        "content": "[CMDRET~memory_get~wants first two wizard kid movies?][CMDRET~movie_lookup~Wizard Kid~List wizard kid movies with data {title;availability;year;tmdbId;id}]Looking up Wizard Kid",
+        "content": "[THOUGHTS~I should search the server for these films and check if user has already requested][CMDRET~memory_get~wants any of the wizard kid movies?][CMDRET~movie_lookup~Wizard Kid~{title;availability;year;tmdbId;id}]Looking up Wizard Kid",
     },
     {
         "role": "system",
@@ -700,13 +725,13 @@ When a user asks to remove media, change their memory to not requesting it, ask 
     },
     {
         "role": "assistant",
-        "content": "[CMD~memory_update~wants movies wizard kid rock, room of whispers][CMD~movie_post~571~4][CMD~movie_post~572~4]Both are on the way in 1080p, Ill remember you want them.",
+        "content": "[THOUGHTS~I should add both movies and note that the user wants them][CMD~memory_update~wants movies wizard kid rock & room of whispers][CMD~movie_post~571~4][CMD~movie_post~572~4]Both are on the way in 1080p, Ill remember you want them.",
     },
     # Example - Change resolutions of Thunder movies
     {"role": "user", "content": "what resolution are the thunder movies in"},
     {
         "role": "assistant",
-        "content": "[CMDRET~movie_lookup~Thunder~List Thunder movies with data {title;availability;year;resolution;wantedQuality;tmdbId;id}]Ill check",
+        "content": "[THOUGHTS~I need to search the server for the quality][CMDRET~movie_lookup~Thunder~{title;availability;year;resolution;wantedQuality;tmdbId;id}]Ill check",
     },
     {
         "role": "system",
@@ -714,34 +739,34 @@ When a user asks to remove media, change their memory to not requesting it, ask 
     },
     {
         "role": "assistant",
-        "content": "Thunder 2012, The Dark World 2014, Ends 2018 & Love 2021 are all on in 4k, though the 2012 movie is wanted as 1080p.",
+        "content": "[THOUGHTS~User request completed, informing user of resolutions]Thunder 2012, The Dark World 2014, Ends 2018 & Love 2021 are all on in 4k, though the 2012 movie is wanted at 1080p.",
     },
     {"role": "user", "content": "i want the first as 4k"},
     {
         "role": "assistant",
-        "content": '[CMD~movie_put~{"id":5,"qualityProfileId":5}]This has been updated to 4k.',
+        "content": '[THOUGHTS~User request completed, dont need to remember what resolution they want][CMD~movie_put~{"id":5,"qualityProfileId":5}]This has been updated to 4k.',
     },
     # Example - Add movie trilogy Lady of the Necklace
     {"role": "user", "content": "add lotn trilogy"},
     {
         "role": "assistant",
-        "content": "[CMDRET~memory_get~wants lady of the necklace trilogy?][CMDRET~movie_lookup~Lady of the Necklace~List Lady of the Necklace movies with data {title;availability;year;tmdbId;id}",
+        "content": "[THOUGHTS~I should check if the trilogy already exists on the server and check if user has requested it][CMDRET~memory_get~wants lady of the necklace trilogy?][CMDRET~movie_lookup~Lady of the Necklace~{title;availability;year;tmdbId;id}]I'm checking the server, Ive noted that you want these movies",
     },
     {
         "role": "system",
-        "content": "[RES~no memories][RES~{available;Lady of the Necklace: The Two Cottages;2005;8833;125}\{available;Lady of the Necklace: The Sisterhood of the Necklace;2004;8834;120}\{Lady of the Necklace: Queens Return;available;2006;939;126}]",
+        "content": "[RES~no memories][RES~{Lady of the Necklace: The Two Cottages;available;2005;8833;125}{Lady of the Necklace: The Sisterhood of the Necklace;available;2004;8834;120}{Lady of the Necklace: Queens Return;available;2006;939;126}]",
     },
     {
         "role": "assistant",
-        "content": "[CMD~memory_update~wants movies lady of the necklace trilogy]Lady of the Necklace trilogy are already on, I have noted you want them.",
+        "content": "[THOUGHTS~Trilogy is already on the server, I should note user wants them][CMD~memory_update~wants movies lady of the necklace trilogy]Lady of the Necklace trilogy are already on, I've noted you want them",
     },
     # Example - Add series Eastworld
     {"role": "user", "content": "add eastworld"},
-    {"role": "assistant", "content": "The movie or the series?"},
+    {"role": "assistant", "content": "[THOUGHTS~There is a movie and series by this name, unsure what the user wants I should ask]The movie or the series?"},
     {"role": "user", "content": "the series"},
     {
         "role": "assistant",
-        "content": "[CMDRET~memory_get~wants series eastworld?][CMDRET~series_lookup~Eastworld~List Eastworld series with data {title;availability;year;tvdbId;wantedQuality;id}]Looking up Eastworld",
+        "content": "[THOUGHTS~I should lookup the series on the server, and check if the user wants it][CMDRET~memory_get~wants series eastworld?][CMDRET~series_lookup~Eastworld~{title;availability;year;tvdbId;wantedQuality;id}]Looking up Eastworld",
     },
     {
         "role": "system",
@@ -749,13 +774,57 @@ When a user asks to remove media, change their memory to not requesting it, ask 
     },
     {
         "role": "assistant",
-        "content": "[CMD~series_post~152347~4]Eastworld is on the way in 1080p, I have noted you want it.",
+        "content": "[THOUGHTS~User request to add eastworld completed][CMD~series_post~152347~4]Eastworld is on the way in 1080p",
     },
-    # Example - Want all movies from cinematic universe
-    {"role": "user", "content": "i want all movies from the silly cinematic universe"},
+    # Example - Check resolutions of silly cinematic universe, wants them all
+    {
+        "role": "user",
+        "content": "what resolution are the silly cinematic universe movies, i want them all",
+    },
     {
         "role": "assistant",
-        "content": "[CMDRET~memory_update~wants all movies from silly cinematic universe][CMDRET~web_search~List of all Silly Cinematic Universe movies in order]I'm looking up all the movies in the silly cinematic universe",
+        "content": "[THOUGHTS~I should search the server for the quality of the SCU movies, and note the user wants them][CMD~memory_update~wants movies in silly cinematic universe][CMDRET~movie_lookup~SCU~{title;availability;year;resolution;wantedQuality;tmdbId;id}]I'm looking this up, I have noted that you want them",
+    },
+    {
+        "role": "system",
+        "content": "[RES~No results]",
+    },
+    {
+        "role": "assistant",
+        "content": "[THOUGHTS~Searching for term SCU had no results, I should do a web search for what movies are in the collection and try individually][CMDRET~web_search~List of all Silly Cinematic Universe movies in order]My first search was unsucessful I am trying again",
+    },
+    {
+        "role": "system",
+        "content": "[RES~Here is a list of all Silly Cinematic Universe movies in order: Silly Man 2018; Silly Man 2 2020; Thunder 2021; Captain Silly: The First Silly Hero 2021; Silly Man 3 2022]",
+    },
+    {
+        "role": "assistant",
+        "content": "[THOUGHTS~I should look up each series within the collection on the server][CMDRET~movie_lookup~Silly Man~{title;availability;year;wantedQuality;tmdbId;id}][CMDRET~movie_lookup~Thunder~{title;availability;year;wantedQuality;tmdbId;id}][CMDRET~movie_lookup~Captain Silly~{title;availability;year;wantedQuality;tmdbId;id}]I found 5 movies in the Silly Cinematic Universe, I am looking up their quality and availability on the server",
+    },
+    {
+        "role": "system",
+        "content": "[RES~{Silly Man 1;available;2018;2160p;6655;22}{Silly Man 2;available;2020;2160p;7652;23}{Silly Man 3;available;2022;2160p;14433;45}][RES~{Thunder 1;available;2021;2160p;8775;24}][RES~{Captain Silly: The First Silly Hero;available;2021;2160p;12995;25}]",
+    },
+    {
+        "role": "assistant",
+        "content": "[THOUGHTS~User request asking for silly universe movies and wanting them completed, nothing left to do]All 5 movies are present in the server with a wanted quality of 4k.",
+    },
+    # Example - Recommend me media
+    {
+        "role": "user",
+        "content": "recommend me a movie",
+    },
+    {
+        "role": "assistant",
+        "content": "[THOUGHTS~I should look up what user likes, I shouldn't suggest until I have this info][CMDRET~memory_get~what movies does user like?]I'm looking up my memories of what you like",
+    },
+    {
+        "role": "system",
+        "content": "[RES~user likes all the scu movies, action movies, and the lady of the necklace trilogy]",
+    },
+    {
+        "role": "assistant",
+        "content": "[THOUGHTS~User request for recommendation completed, query user for more]Based on your past likes, you might love the Wizard Kid movies, there are 7 of them, is there any genre you are currently in the mood for?",
     },
     # Examples End
     {
@@ -769,16 +838,34 @@ When a user asks to remove media, change their memory to not requesting it, ask 
 ]
 
 
-def runChatCompletion(message: str, depth: int = 0) -> None:
+def runChatCompletion(message: list, depth: int = 0) -> None:
+    # Calculate tokens of the messages, GPT-3.5-Turbo has max tokens 4,096
+    tokens = 0
+    # Add up tokens in initMessages
+    for msg in initMessages:
+        tokens += len(msg["content"]) / 4 * 1.01
+    # Add up tokens in message, but only add until limit is reached then remove earliest messages
+    wantedMessages = []
+    for msg in reversed(message):
+        # Add token per 4 characters, give slight extra to make sure the limit is never reached
+        tokens += len(msg["content"]) / 4 * 1.01
+        # Token limit reached, stop adding messages
+        if tokens > 4000:
+            break
+        # Add message to start of wantedMessages
+        wantedMessages.insert(0, msg)
+    print(tokens)
+
     # Run a chat completion
     response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo", messages=message, temperature=0.7
+        model="gpt-3.5-turbo", messages=initMessages + message, temperature=0.7
     )
     responseMessage = response["choices"][0]["message"]["content"]
     responseToUser = responseMessage[:]
     print("")
     print("Assistant: " + responseMessage.replace("\n", " "))
     print("")
+
     # Extract commands from the response, commands are within [], everything outside of [] is a response to the user
     commands = []
     hasCmdRet = False
@@ -844,7 +931,7 @@ def runChatCompletion(message: str, depth: int = 0) -> None:
 
 
 # Loop prompting for input
-currentMessage = initMessages.copy()
+currentMessage = []
 for i in range(10):
     userText = input("User: ")
     if userText == "exit":
