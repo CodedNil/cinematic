@@ -1,6 +1,7 @@
 import os
 import json
 import openai
+from modules.module_logs import ModuleLogs
 
 
 class MemoriesAPI:
@@ -9,6 +10,9 @@ class MemoriesAPI:
     def __init__(self, openai_key: str) -> None:
         """Initialise with openai key and load memories"""
         openai.api_key = openai_key
+
+        # Create logs
+        self.logs = ModuleLogs("memories")
 
         # Load memories from memories.json or create the file
         self.memories = {}
@@ -67,6 +71,9 @@ class MemoriesAPI:
                 temperature=0.7,
             )
 
+            # Log the response
+            self.logs.log("get_memory", userMemories, query, response)
+
             return response["choices"][0]["message"]["content"]
         else:
             return "no memories"
@@ -115,6 +122,9 @@ class MemoriesAPI:
             ],
             temperature=0.7,
         )
+
+        # Log the response
+        self.logs.log("update_memory", userMemories, query, response)
 
         # Update the users memories
         self.memories[user] = response["choices"][0]["message"]["content"]

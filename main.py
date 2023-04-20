@@ -2,6 +2,7 @@ import openai
 import json
 
 # Modules
+from modules.module_logs import ModuleLogs
 from modules.memories import MemoriesAPI
 from modules.web_search import WebAPI
 from modules.series_api import SeriesAPI
@@ -30,6 +31,8 @@ radarr_headers = {
 }
 radarr_auth = (credentials["radarr"]["authuser"], credentials["radarr"]["authpass"])
 Radarr = MoviesAPI(credentials["openai"], radarr_url, radarr_headers, radarr_auth)
+
+Logs = ModuleLogs("main")
 
 
 # Init messages
@@ -287,6 +290,9 @@ def runChatCompletion(message: list, depth: int = 0) -> None:
     response = openai.ChatCompletion.create(
         model="gpt-3.5-turbo", messages=initMessages + message, temperature=0.7
     )
+    # Log the response
+    Logs.log("thread", json.dumps(initMessages + message, indent=4), "", response)
+
     responseMessage = response["choices"][0]["message"]["content"]
     responseToUser = responseMessage[:]
     print("")

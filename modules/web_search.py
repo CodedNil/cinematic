@@ -1,6 +1,7 @@
 import json
 import openai
 import requests
+from modules.module_logs import ModuleLogs
 
 from duckduckgo_search import ddg
 from readability import Document
@@ -22,6 +23,9 @@ class WebAPI:
     def __init__(self, openai_key: str) -> None:
         """Initialise with credentials"""
         openai.api_key = openai_key
+
+        # Create logs
+        self.logs = ModuleLogs("web")
 
     def basic(self, query: str = "", numResults: int = 4) -> dict:
         """Perform a DuckDuckGo Search and return the results as a JSON string"""
@@ -56,6 +60,9 @@ class WebAPI:
             ],
             temperature=0.7,
         )
+        # Log the response
+        self.logs.log("website_choice", search_results, query, response)
+
         responseNumber = response["choices"][0]["message"]["content"]
         # Test if the response number str is single digit number
         if (
@@ -120,6 +127,10 @@ class WebAPI:
                 },
             ],
             temperature=0.7,
+        )
+        # Log the response
+        self.logs.log(
+            "answer", summary.replace("\n", " - "), query, response.replace("\n", " - ")
         )
 
         return response["choices"][0]["message"]["content"]

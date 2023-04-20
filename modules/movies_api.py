@@ -1,6 +1,7 @@
 import requests
 import json
 import openai
+from modules.module_logs import ModuleLogs
 
 # int to str for quality profiles
 qualityProfiles = {
@@ -33,6 +34,9 @@ class MoviesAPI:
         self.radarr_url = radarr_url
         self.radarr_headers = radarr_headers
         self.radarr_auth = radarr_auth
+
+        # Create logs
+        self.logs = ModuleLogs("movies")
 
     def lookup_movie(self, term: str, query: str) -> str:
         """Lookup a movie and return the information, uses ai to parse the information to required relevant to query"""
@@ -128,7 +132,7 @@ class MoviesAPI:
                     )
                 result.append("ratings " + ", ".join(ratings))
             # Add to results
-            results.append("; ".join(result))
+            results.append(";".join(result))
 
             # Only include first 10 results
             if len(results) >= 10:
@@ -149,6 +153,10 @@ class MoviesAPI:
                 },
             ],
             temperature=0.7,
+        )
+        # Log the response
+        self.logs.log(
+            "query_lookup", " - ".join(results).replace("\n", " "), query, response
         )
 
         return response["choices"][0]["message"]["content"]
