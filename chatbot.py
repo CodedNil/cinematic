@@ -169,28 +169,6 @@ def lookup_movie(term: str, query: str) -> str:
     return response["choices"][0]["message"]["content"]
 
 
-# Tests
-# print(lookup_movie("The Matrix", "What is the file size of the matrix?"))
-# print(
-#     lookup_movie(
-#         "Stargate",
-#         "List stargate movies with data {availability, title, year, tmdbId}",
-#     )
-# )
-# print(
-#     lookup_movie(
-#         "Harry Potter ",
-#         "List harry potter movies with data {availability, title, year, tmdbId}",
-#     )
-# )
-# print(
-#     lookup_movie(
-#         "Lord of the Rings ",
-#         "List lord of the rings movies with data {availability, title, year, tmdbId}",
-#     )
-# )
-
-
 def lookup_movie_tmdbId(tmdbId: int) -> dict:
     """Lookup a movie by tmdbId and return the information"""
 
@@ -338,20 +316,6 @@ def lookup_series(term: str, query: str) -> str:
     )
 
     return response["choices"][0]["message"]["content"]
-
-
-# Tests
-# print(
-#     lookup_series(
-#         "Stargate", "List stargate series with data {availability, title, year, tvdbId}"
-#     )
-# )
-# print(
-#     lookup_series(
-#         "Adventure Time",
-#         "List adventure time series with data {availability, title, year, tvdbId, resolution}",
-#     )
-# )
 
 
 def lookup_series_tvdbId(tvdbId: int) -> dict:
@@ -552,7 +516,7 @@ def get_memory(user: str, query: str) -> str:
                 },
                 {
                     "role": "user",
-                    "content": "memories:requested all 7 abc movies",
+                    "content": "memories:requested all 7 abc movies, enjoyed eastworld",
                 },
                 {
                     "role": "user",
@@ -560,7 +524,15 @@ def get_memory(user: str, query: str) -> str:
                 },
                 {
                     "role": "assistant",
-                    "content": "yes user requested harry potter deathly hallows part 2",
+                    "content": "yes user requested abc 2",
+                },
+                {
+                    "role": "user",
+                    "content": "user requested eastworld?",
+                },
+                {
+                    "role": "assistant",
+                    "content": "no user has not requested eastworld, but they mentioned they enjoyed it",
                 },
                 {
                     "role": "user",
@@ -598,11 +570,19 @@ def update_memory(user: str, query: str) -> None:
                 "role": "user",
                 "content": "You are a memory writer assistant, you view a memory file and update it with information, you write extremely brief summaries",
             },
-            {"role": "user", "content": "memories:enjoyed avatar 1"},
-            {"role": "user", "content": "Add 'loved stargate 1994'"},
+            {
+                "role": "user",
+                "content": "memories:enjoyed movie puppet 1, wants series eastworld",
+            },
+            {"role": "user", "content": "Add 'loved movie stingate 1995'"},
             {
                 "role": "assistant",
-                "content": "enjoyed avatar 1 and loved stargate 1994",
+                "content": "enjoyed movie puppet 1 and loved movie stingate 1995, wants series eastworld",
+            },
+            {"role": "user", "content": "Add 'doesnt want series eastworld'"},
+            {
+                "role": "assistant",
+                "content": "enjoyed movie puppet 1 and loved movie stingate 1995",
             },
             {"role": "user", "content": "the above are examples, do you understand?"},
             {
@@ -639,7 +619,7 @@ Before making suggestions or adding media, always run lookups to ensure correct 
         "content": """WEB~web_search (query) do web search, example "Whats top marvel movie?" [CMDRET~web_search~highest rated marvel movie] on error, alter query try again
 
 Movies only available commands:
-movie_lookup (term=, query=) Also look for availability, title, year, tmdbId, id and anything else you might need, if user is making queries about resolution, include resolution in the search etc
+movie_lookup (term=, query=) Always look for availability;title;year;tmdbId;id and anything else you might need, if user is making queries about resolution, include resolution in the search etc
 movie_post (tmdbId=, qualityProfileId=) add in 1080p by default, the quality profiles are: 2=SD 3=720p 4=1080p 5=2160p 6=720p/1080p 7=Any
 movie_put (id=, qualityProfileId=) update data such as quality profile of the movie
 movie_delete (id=) delete movie from server, uses the id not tmdbId, admin only command
@@ -657,103 +637,125 @@ You store important information about users, which media they have requested and
 Used to create recommendations from previous likes/requests, or avoid suggesting media they have already seen
 When a user asks to remove media, change their memory to not requesting it, ask for a review, only admins can remove media""",
     },
-    # Cats Example - I like it
-    {"role": "user", "content": "i really love the movie cats"},
+    # Example - Memorise loving movie
+    {"role": "user", "content": "i really love the movie animals"},
     {
         "role": "assistant",
-        "content": "[CMD~memory_update~loved movie cats]Thats good I will remember.",
+        "content": "[CMD~memory_update~loved movie animals]Thats good I will remember.",
     },
-    # Stargate Example - Add then request ark of truth
-    {"role": "user", "content": "add stargate"},
+    # Example - Add movies Stingate that already exist on server, then request in memory wanting an extra one
+    {"role": "user", "content": "add stingate"},
     {"role": "assistant", "content": "Movie or series?"},
     {"role": "user", "content": "movie"},
     {
         "role": "assistant",
-        "content": "[CMDRET~memory_get~wants stargate movie?][CMDRET~movie_lookup~Stargate~List stargate movies with data {availability, title, year, tmdbId, id}]I'm looking this up",
+        "content": "[CMDRET~memory_get~wants stingate movie?][CMDRET~movie_lookup~Stingate~List stingate movies with data {title;availability;year;tmdbId;id}]I'm looking this up",
     },
     {
         "role": "system",
-        "content": "[RES~user wants stargate 1994 & continuum 2008][RES~Stargate; available; year 1994; tmdbId 2164\Stargate: Continuum; available; year 2008; tmdbId 12914\Stargate: The Ark of Truth; available; year 2008; tmdbId 13001\Stargate SG-1: Children of the Gods; unavailable; year 2009; tmdbId 784993]",
+        "content": "[RES~user wants stingate 1995 & continue 2007][RES~{Stingate;available;year 1995;tmdbId 2353}{Stingate Continue;available;year 2007;tmdbId 15134}{Stingate Ark;available;year 2007;tmdbId 15506}{Stingate Angel Kids;unavailable;year 2010;tmdbId 723663}]",
     },
     {
         "role": "assistant",
-        "content": "Stargate 1994 and Continuum 2008 are already on the server at your request, Ark of Truth 2008 is on by someone elses request. Children of the Gods 2009 is not on the server, would you like to add it? It is a reimagining of the SG-1 pilot with altered scenes, remastered visuals etc.",
+        "content": "Stingate 1995 and Stingate 2007 are already on the server at your request, Ark 2007 is on at someone elses request. Angel Kids 2010 is not on the server, would you like to add it? It is a reimagining of the Stingate Pilot with altered scenes, remastered visuals etc.",
     },
-    {"role": "user", "content": "no, but add ark of truth to my requests too"},
+    {"role": "user", "content": "no, but add ark to my requests too"},
     {
         "role": "assistant",
-        "content": "[CMD~memory_update~wants movie stargate ark of truth]I've memorised this",
+        "content": "[CMD~memory_update~wants movie stingate ark]I've memorised this",
     },
-    # Adventure Time Example - 1080p to 720p then delete and reviewed
-    {"role": "user", "content": "adventure time to 720p"},
+    # Example - Series Silly Times 1080p to 720p then delete and reviewed
+    {"role": "user", "content": "silly times to 720p"},
     {
         "role": "assistant",
-        "content": "[CMDRET~series_lookup~Adventure Time~List adventure time series with data {availability, title, year, tvdbId, resolution, id}]Looking up Adventure Time",
+        "content": "[CMDRET~series_lookup~Silly Times~List silly times series with data {title;availability;year;tvdbId;wantedQuality;id}]Looking up Silly Times",
     },
     {
         "role": "system",
-        "content": "[RES~Adventure Time; available on the server; year 2010; tvdbId 152831; resolution 1080p\Adventure Time: Fionna and Cake; unavailable on the server; year 0; tvdbId N/A; resolution N/A; id 66]",
+        "content": "[RES~{Silly Times;available on the server;year 2013;tvdbId 152837;wantedQuality 1080p;id 63}]",
     },
     {
         "role": "assistant",
-        "content": '[CMD~series_put~{"id":66,"qualityProfileId":3}]Found it in 1080p, changing to 720p',
+        "content": '[CMD~series_put~{"id":63,"qualityProfileId":3}]Found it in 1080p, changing to 720p',
     },
     {"role": "user", "content": "now delete it"},
     {
         "role": "assistant",
-        "content": "[CMD~memory_update~doesnt want show adventure time]Removed it, did you enjoy it?",
+        "content": "[CMD~memory_update~doesnt want show silly times]Removed it, did you enjoy it?",
     },
     {"role": "user", "content": "yeah was good"},
     {
         "role": "assistant",
-        "content": "[CMD~memory_update~enjoyed show adventure time]Great I will remember.",
+        "content": "[CMD~memory_update~enjoyed show silly times]Great I will remember.",
     },
-    # Harry Potter Example - Add first two films
-    {"role": "user", "content": "add first two harry potter films"},
+    # Example - Add first two Wizard Kid films
+    {"role": "user", "content": "add first two wizard kid films"},
     {
         "role": "assistant",
-        "content": "[CMDRET~memory_get~wants first two harry potter movies?][CMDRET~movie_lookup~Harry Potter~List harry potter movies with data {availability, title, year, tmdbId, id}]Looking up Harry Potter",
+        "content": "[CMDRET~memory_get~wants first two wizard kid movies?][CMDRET~movie_lookup~Wizard Kid~List wizard kid movies with data {title;availability;year;tmdbId;id}]Looking up Wizard Kid",
     },
     {
         "role": "system",
-        "content": "[RES~user hasnt requested any harry potter movies][RES~Harry Potter and the Philosopher's Stone; unavailable; release year 2001; tmdbId 671\Harry Potter and the Half-Blood Prince; unavailable; release year 2009; tmdbId 767\Harry Potter and the Goblet of Fire; unavailable; release year 2005; tmdbId 674\Harry Potter and the Chamber of Secrets; unavailable; release year 2002; tmdbId 672\Harry Potter and the Prisoner of Azkaban; unavailable; release year 2004; tmdbId 673\Harry Potter and the Deathly Hallows: Part 2; unavailable; release year 2011; tmdbId 12445\Harry Potter and the Order of the Phoenix; unavailable; release year 2007; tmdbId 675\Harry Potter and the Deathly Hallows: Part 1; unavailable; release year 2010; tmdbId 12444]",
+        "content": "[RES~user hasnt requested any wizard kid movies][RES~{Wizard Kid and Rock;unavailable;release year 2003;tmdbId 571;id N/A}{Wizard Kid and Princess;unavailable;release year 2012;tmdbId 4321;id N/A}{Wizard Kid and Wine Glass;unavailable;release year 2007;tmdbId 574;id N/A}{Wizard Kid and Room of Whispers;unavailable;release year 2005;tmdbId 572;id N/A}{Wizard Kid and Birdy;unavailable;release year 2009;tmdbId 575;id N/A}{Wizard Kid and Sticks;unavailable;release year 2012;tmdbId 5123}]",
     },
     {
         "role": "assistant",
-        "content": "[CMD~memory_update~wants movies harry potter philosophers stone, chamber of secret][CMD~movie_post~671~4][CMD~movie_post~672~4]Both are on the way in 1080p, Ill remember you want them.",
+        "content": "[CMD~memory_update~wants movies wizard kid rock, room of whispers][CMD~movie_post~571~4][CMD~movie_post~572~4]Both are on the way in 1080p, Ill remember you want them.",
     },
-    # Thor Example - Change resolutions
-    {"role": "user", "content": "what resolution are the thor movies in"},
+    # Example - Change resolutions of Thunder movies
+    {"role": "user", "content": "what resolution are the thunder movies in"},
     {
         "role": "assistant",
-        "content": "[CMDRET~movie_lookup~Thor~List Thor movies with data {availability, title, year, resolution, tmdbId, id}]Ill check",
+        "content": "[CMDRET~movie_lookup~Thunder~List Thunder movies with data {title;availability;year;resolution;wantedQuality;tmdbId;id}]Ill check",
     },
     {
         "role": "system",
-        "content": "[RES~- Thor; available on the server; release year 2011; resolution 3840x1636; tmdbId 10195; id 7\n- Thor: Love and Thunder; available on the server; release year 2022; resolution 3840x1608; tmdbId 616037; id 925\n- Thor: Ragnarok; available on the server; release year 2017; resolution 3840x1600; tmdbId 284053; id 19\n- Thor: The Dark World; available on the server; release year 2013; resolution 3840x1600; tmdbId 76338; id 10]",
+        "content": "[RES~{Thunder;available;release year 2012;resolution 3840x1636;wantedQuality 1080p;tmdbId 13145;id 5}{Thunder Love;available;release year 2021;resolution 3840x1608;wantedQuality 2160p;tmdbId 656037;id 915}{Thunder Ends;available;release year 2018;resolution 3840x1600;wantedQuality 2160p;tmdbId 244053;id 17}{Thunder Darkness;available;release year 2014;resolution 3840x1600;wantedQuality 2160p;tmdbId 72338;id 12]",
     },
     {
         "role": "assistant",
-        "content": "Thor 2011, The Dark World 2013, Ragnarok 2017 & Love and Thunder are all on in 4k",
+        "content": "Thunder 2012, The Dark World 2014, Ends 2018 & Love 2021 are all on in 4k, though the 2012 movie is wanted as 1080p.",
     },
-    {"role": "user", "content": "change the first two to 1080p"},
+    {"role": "user", "content": "i want the first as 4k"},
     {
         "role": "assistant",
-        "content": '[CMD~movie_put~{"id":7,"qualityProfileId":4}][CMD~movie_put~{"id":10,"qualityProfileId":4}]They are now 1080p.',
+        "content": '[CMD~movie_put~{"id":5,"qualityProfileId":5}]This has been updated to 4k.',
     },
-    # Lord of the Rings Example - Add trilogy
-    {"role": "user", "content": "add lotr trilogy"},
+    # Example - Add movie trilogy Lady of the Necklace
+    {"role": "user", "content": "add lotn trilogy"},
     {
         "role": "assistant",
-        "content": "[CMDRET~memory_get~wants lord of the rings trilogy?][CMDRET~movie_lookup~Lord of the Rings~List lord of the rings movies with data {availability, title, year, tmdbId, id}",
+        "content": "[CMDRET~memory_get~wants lady of the necklace trilogy?][CMDRET~movie_lookup~Lady of the Necklace~List Lady of the Necklace movies with data {title;availability;year;tmdbId;id}",
     },
     {
         "role": "system",
-        "content": "[RES~no memories][{available on the server, The Lord of the Rings: The Two Towers, 2002, 121}\{available on the server, The Lord of the Rings: The Fellowship of the Ring, 2001, 120}\{available on the server, The Lord of the Rings: The Return of the King, 2003, 122}\{unavailable on the server, The Lord of the Rings, 1978, 123}]",
+        "content": "[RES~no memories][RES~{available;Lady of the Necklace: The Two Cottages;2005;8833;125}\{available;Lady of the Necklace: The Sisterhood of the Necklace;2004;8834;120}\{Lady of the Necklace: Queens Return;available;2006;939;126}]",
     },
     {
         "role": "assistant",
-        "content": "[CMD~memory_update~wants movies lord of the rings trilogy]The Lord of the Rings trilogy are already on, I have noted you want them.",
+        "content": "[CMD~memory_update~wants movies lady of the necklace trilogy]Lady of the Necklace trilogy are already on, I have noted you want them.",
+    },
+    # Example - Add series Eastworld
+    {"role": "user", "content": "add eastworld"},
+    {"role": "assistant", "content": "The movie or the series?"},
+    {"role": "user", "content": "the series"},
+    {
+        "role": "assistant",
+        "content": "[CMDRET~memory_get~wants series eastworld?][CMDRET~series_lookup~Eastworld~List Eastworld series with data {title;availability;year;tvdbId;wantedQuality;id}]Looking up Eastworld",
+    },
+    {
+        "role": "system",
+        "content": "[RES~user wants the Eastworld series][RES~{Eastworld;unavailable;year 2014;tvdbId 152347;wantedQuality N/A;id N/A}]",
+    },
+    {
+        "role": "assistant",
+        "content": "[CMD~series_post~152347~4]Eastworld is on the way in 1080p, I have noted you want it.",
+    },
+    # Example - Want all movies from cinematic universe
+    {"role": "user", "content": "i want all movies from the silly cinematic universe"},
+    {
+        "role": "assistant",
+        "content": "[CMDRET~memory_update~wants all movies from silly cinematic universe][CMDRET~web_search~List of all Silly Cinematic Universe movies in order]I'm looking up all the movies in the silly cinematic universe",
     },
     # Examples End
     {
