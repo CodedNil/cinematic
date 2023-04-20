@@ -649,11 +649,14 @@ When a user asks to remove media, change their memory to not requesting it, ask 
     {"role": "user", "content": "i really love the movie animals"},
     {
         "role": "assistant",
-        "content": "[THOUGHTS~I should note the users likes][CMD~memory_update~loved movie animals]Thats good I will remember.",
+        "content": "[THOUGHTS~I should note the users likes movie animals][CMD~memory_update~loved movie animals]Thats good I will remember.",
     },
     # Example - Add movies Stingate that already exist on server, then request in memory wanting an extra one
     {"role": "user", "content": "add stingate"},
-    {"role": "assistant", "content": "[THOUGHTS~There are movies and series under this name, I should verify with the user]Movie or series?"},
+    {
+        "role": "assistant",
+        "content": "[THOUGHTS~There are movies and series under this name, I should verify with the user]Movie or series?",
+    },
     {"role": "user", "content": "movie"},
     {
         "role": "assistant",
@@ -762,7 +765,10 @@ When a user asks to remove media, change their memory to not requesting it, ask 
     },
     # Example - Add series Eastworld
     {"role": "user", "content": "add eastworld"},
-    {"role": "assistant", "content": "[THOUGHTS~There is a movie and series by this name, unsure what the user wants I should ask]The movie or the series?"},
+    {
+        "role": "assistant",
+        "content": "[THOUGHTS~There is a movie and series by this name, unsure what the user wants I should ask]The movie or the series?",
+    },
     {"role": "user", "content": "the series"},
     {
         "role": "assistant",
@@ -799,7 +805,7 @@ When a user asks to remove media, change their memory to not requesting it, ask 
     },
     {
         "role": "assistant",
-        "content": "[THOUGHTS~I should look up each series within the collection on the server][CMDRET~movie_lookup~Silly Man~{title;availability;year;wantedQuality;tmdbId;id}][CMDRET~movie_lookup~Thunder~{title;availability;year;wantedQuality;tmdbId;id}][CMDRET~movie_lookup~Captain Silly~{title;availability;year;wantedQuality;tmdbId;id}]I found 5 movies in the Silly Cinematic Universe, I am looking up their quality and availability on the server",
+        "content": "[THOUGHTS~I should look up each series within the collection on the server][CMDRET~movie_lookup~Silly Man¬Thunder¬Captain Silly~{title;availability;year;wantedQuality;tmdbId;id}]I found 5 movies in the Silly Cinematic Universe, I am looking up their quality and availability on the server",
     },
     {
         "role": "system",
@@ -897,9 +903,23 @@ def runChatCompletion(message: list, depth: int = 0) -> None:
             if command[1] == "web_search":
                 returnMessage += "[RES~" + advanced_web_search(command[2]) + "]"
             elif command[1] == "movie_lookup":
-                returnMessage += "[RES~" + lookup_movie(command[2], command[3]) + "]"
+                # If multiple terms, split and search for each
+                if len(command[2].split("¬")) > 1:
+                    for term in command[2].split("¬"):
+                        returnMessage += "[RES~" + lookup_movie(term, command[3]) + "]"
+                else:
+                    returnMessage += (
+                        "[RES~" + lookup_movie(command[2], command[3]) + "]"
+                    )
             elif command[1] == "series_lookup":
-                returnMessage += "[RES~" + lookup_series(command[2], command[3]) + "]"
+                # If multiple terms, split and search for each
+                if len(command[2].split("¬")) > 1:
+                    for term in command[2].split("¬"):
+                        returnMessage += "[RES~" + lookup_series(term, command[3]) + "]"
+                else:
+                    returnMessage += (
+                        "[RES~" + lookup_series(command[2], command[3]) + "]"
+                    )
             elif command[1] == "memory_get":
                 returnMessage += "[RES~" + get_memory("user", command[2]) + "]"
 
