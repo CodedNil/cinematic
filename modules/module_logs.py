@@ -48,8 +48,11 @@ class ModuleLogs:
             + completion_tokens * pricing_model["completion_tokens_1k"] / 1000
         )
         responseInfo = f"prompt {prompt_tokens}; completion {completion_tokens}; total {total_tokens}; cost ${cost}"
+        responseMessage = response["choices"][0]["message"]["content"].replace(
+            "\n", " "
+        )
 
         with open(self.log_file, "a") as file:
             file.write(
-                f"{response['model']} {responseInfo} | {func} | {data} | {query} -> {response['choices'][0]['message']['content']}\n"
+                f"{response['model']} {responseInfo} | {func} | {data} | {query} -> {responseMessage}\n"
             )
