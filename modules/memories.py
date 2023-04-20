@@ -8,26 +8,23 @@ class MemoriesAPI:
     """Memories API, used to store and retrieve memories"""
 
     def __init__(self, openai_key: str) -> None:
-        """Initialise with openai key and load memories"""
+        """Initialise with openai key"""
         openai.api_key = openai_key
 
         # Create logs
         self.logs = ModuleLogs("memories")
 
-        # Load memories from memories.json or create the file
-        self.memories = {}
-        if not os.path.exists("memories.json"):
-            with open("memories.json", "w") as outfile:
-                json.dump(self.memories, outfile)
-        with open("memories.json") as json_file:
-            self.memories = json.load(json_file)
-
     def get_memory(self, user: str, query: str) -> str:
         """Get a memory from the users memory file with ai querying"""
 
         # Get users memories
-        if user in self.memories:
-            userMemories = self.memories[user]
+        memories = {}
+        if os.path.exists("memories.json"):
+            with open("memories.json") as json_file:
+                memories = json.load(json_file)
+
+        if user in memories:
+            userMemories = memories[user]
 
             # Search with gpt through the users memory file
             response = openai.ChatCompletion.create(
@@ -82,8 +79,13 @@ class MemoriesAPI:
         """Update a memory in the users memory file with ai"""
 
         # Get users memories
-        if user in self.memories:
-            userMemories = self.memories[user]
+        memories = {}
+        if os.path.exists("memories.json"):
+            with open("memories.json") as json_file:
+                memories = json.load(json_file)
+
+        if user in memories:
+            userMemories = memories[user]
         else:
             userMemories = ""
 
@@ -127,8 +129,8 @@ class MemoriesAPI:
         self.logs.log("update_memory", userMemories, query, response)
 
         # Update the users memories
-        self.memories[user] = response["choices"][0]["message"]["content"]
+        memories[user] = response["choices"][0]["message"]["content"]
 
         # Save the memories to memories.json
         with open("memories.json", "w") as outfile:
-            json.dump(self.memories, outfile)
+            json.dump(memories, outfile)

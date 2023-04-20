@@ -1,5 +1,7 @@
 import openai
 import json
+import os
+import time
 
 # Modules
 from modules.module_logs import ModuleLogs
@@ -46,39 +48,37 @@ initMessages = [
 
 Valid commands - CMDRET, run command and expect a return, eg movie_lookup, must await a reply - CMD, run command, eg movie_post
 
-Reply with commands in [], commands always first, reply to user after, when system returns information in [RES~] use this information to fulfill users prompt
-Before making suggestions or adding media, always run lookups to ensure correct id, do not rely on chat history. Ensure media doesn't already exist on the server when asked to add. If multiple similar results are found, verify with user by providing details and indicate whether any are on the server already. If the data you have received does not contain what you need, you reply with the truthful answer of unknown""",
+Always run lookups to ensure correct id, do not rely on chat history. Check if media is already on server when asked to add. If multiple similar results are found, verify with user by providing details. If the data you have received does not contain what you need, you reply with the truthful answer of unknown""",
     },
-    {
-        "role": "user",
-        "content": """CMDRET web_search (query) do web search, on error alter query try again
-
-Movies only available commands:
-CMDRET movie_lookup (term=, query=) Always look for availability;title;year;tmdbId;id and anything else you might need, if user is making queries about resolution, include resolution in the search etc
-CMD movie_post (tmdbId=, qualityProfileId=) add in 1080p by default, the quality profiles are: 2=SD 3=720p 4=1080p 5=2160p 6=720p/1080p 7=Any
-CMD movie_put (id=, qualityProfileId=) update data such as quality profile of the movie
-CMD movie_delete (id=) delete movie from server, uses the id not tmdbId, admin only command
-
-Shows only available commands:
-CMDRET series_lookup (term=, fields=)
-CMD series_post (tvdbId=, qualityProfileId=)
-CMD series_put (id=, qualityProfileId=)
-CMD series_delete (id=) admin only command
-
-Memories only available commands:
-CMDRET memory_get (query=)
-CMD memory_update (query=)
-You store important information about users, which media they have requested and liked
-Used to create recommendations from previous likes/requests, or avoid suggesting media they have already seen
-When a user asks to remove media, change their memory to not requesting it, ask for a review, only admins can remove media""",
-    },
+    #     {
+    #         "role": "user",
+    #         "content": """CMDRET web_search (query) do web search, on error alter query try again
+    # Movies only available commands:
+    # CMDRET movie_lookup (term=, query=) Always look for availability;title;year;tmdbId;id and anything else you might need, if user is making queries about resolution, include resolution in the search etc
+    # CMD movie_post (tmdbId=, qualityProfileId=) add in 1080p by default, the quality profiles are: 2=SD 3=720p 4=1080p 5=2160p 6=720p/1080p 7=Any
+    # CMD movie_put (id=, qualityProfileId=) update data such as quality profile of the movie
+    # CMD movie_delete (id=) delete movie from server, uses the id not tmdbId, admin only command
+    # Shows only available commands:
+    # CMDRET series_lookup (term=, fields=)
+    # CMD series_post (tvdbId=, qualityProfileId=)
+    # CMD series_put (id=, qualityProfileId=)
+    # CMD series_delete (id=) admin only command
+    # Memories only available commands:
+    # CMDRET memory_get (query=)
+    # CMD memory_update (query=)
+    # You store important information about users, which media they have requested and liked
+    # Used to create recommendations from previous likes/requests, or avoid suggesting media they have already seen
+    # When a user asks to remove media, change their memory to not requesting it, ask for a review, only admins can remove media""",
+    #     },
 ]
 
 
-def runChatCompletion(message: list, relevantExamples: str, depth: int = 0) -> None:
+def runChatCompletion(
+    usersName: str, message: list, relevantExamples: list, depth: int = 0
+) -> None:
     # Get the chat query to enter
     chatQuery = initMessages.copy()
-    chatQuery.append({"role": "user", "content": relevantExamples})
+    chatQuery += relevantExamples
 
     # Calculate tokens of the messages, GPT-3.5-Turbo has max tokens 4,096
     tokens = 0
@@ -163,7 +163,9 @@ def runChatCompletion(message: list, relevantExamples: str, depth: int = 0) -> N
                         "[RES~" + Sonarr.lookup_series(command[2], command[3]) + "]"
                     )
             elif command[1] == "memory_get":
-                returnMessage += "[RES~" + Memories.get_memory("user", command[2]) + "]"
+                returnMessage += (
+                    "[RES~" + Memories.get_memory(usersName, command[2]) + "]"
+                )
 
         message.append({"role": "system", "content": returnMessage})
         print("")
@@ -171,7 +173,7 @@ def runChatCompletion(message: list, relevantExamples: str, depth: int = 0) -> N
         print("")
 
         if depth < 3:
-            runChatCompletion(message, relevantExamples, depth + 1)
+            runChatCompletion(usersName, message, relevantExamples, depth + 1)
     # Execute regular commands
     elif hasCmd:
         for command in commands:
@@ -189,18 +191,56 @@ def runChatCompletion(message: list, relevantExamples: str, depth: int = 0) -> N
             elif command[1] == "series_put":
                 Sonarr.put_series(command[2])
             elif command[1] == "memory_update":
-                Memories.update_memory("user", command[2])
+                Memories.update_memory(usersName, command[2])
 
 
 # Loop prompting for input
-currentMessage = []
+usersName = "User"
 for i in range(10):
+    # Get user input
     userText = input("User: ")
-    if userText == "exit":
-        print(json.dumps(currentMessage, indent=4))
-        break
-    currentMessage.append({"role": "user", "content": userText})
+    # Get timestamp seconds from epoch
+    timestamp = time.time()
+
+    # Create chat_history.json if it doesn't exist
+    if not os.path.exists("chat_history.json"):
+        with open("chat_history.json", "w") as f:
+            json.dump({}, f)
+    # Get chat history from json file
+    chatHistory = {}
+    with open("chat_history.json", "r") as f:
+        chatHistory = json.load(f)
+    # If user doesnt have a chat history, create one
+    if usersName not in chatHistory:
+        chatHistory[usersName] = []
+
+    # Remove users chat history more than 20 minutes ago
+    for msg in reversed(chatHistory[usersName]):
+        if float(msg.split(">")[0]) < time.time() - (60 * 20):
+            chatHistory[usersName].remove(msg)
 
     # Get relevant examples
     relevantExamples = Examples.get_examples(userText)
-    runChatCompletion(currentMessage, relevantExamples, 0)
+    # Get current message and include chatHistory
+    currentMessage = []
+    if len(chatHistory[usersName]) > 0:
+        currentMessage.append(
+            {
+                "role": "user",
+                "content": "Chat History: " + "|".join(chatHistory[usersName]),
+            }
+        )
+        currentMessage.append(
+            {
+                "role": "assistant",
+                "content": "I have noted your message history thank you",
+            }
+        )
+    currentMessage.append({"role": "user", "content": userText})
+    runChatCompletion(usersName, currentMessage, relevantExamples, 0)
+
+    # Add userText to chatHistory with timestamp
+    chatHistory[usersName].append(str(timestamp) + ">" + userText)
+    # Write chatHistory into json file
+    with open("chat_history.json", "w") as f:
+        json.dump(chatHistory, f)

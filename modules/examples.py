@@ -16,7 +16,7 @@ A:[CMD~memory_update~loved movie animals]Thats good I will remember.""",
         "prompt": """U:add stingate
 A:Movie or series?
 U:movie
-A:[CMDRET~memory_get~wants stingate movie?][CMDRET~movie_lookup~Stingate~{title;availability;year;tmdbId;id}]I'm looking this up
+A:[CMDRET~memory_get~wants stingate movie?][CMDRET~movie_lookup~Stingate~{title;availability;year;tmdbId;id}]Looking this up
 S:[RES~user wants stingate 1995 & continue 2007][RES~{Stingate;available;year 1995;tmdbId 2353}{Stingate Continue;available;year 2007;tmdbId 15134}{Stingate Ark;available;year 2007;tmdbId 15506}{Stingate Angel Kids;unavailable;year 2010;tmdbId 723663}]
 A:Stingate 1995 and Stingate 2007 are already on the server at your request, Ark 2007 is on at someone elses request. Angel Kids 2010 is not on the server, would you like to add it? It is a reimagining of the Stingate Pilot with altered scenes, remastered visuals etc.
 U:no, but add ark to my requests too
@@ -152,9 +152,31 @@ class ExamplesAPI:
             for example in Examples:
                 for query in example["queries"]:
                     if query in responseExamples:
-                        returnPrompts.append(example["prompt"])
+                        # Go through the prompt split by newline, add each line as a prompt
+                        for line in example["prompt"].split("\n"):
+                            if line.startswith("U:"):
+                                returnPrompts.append(
+                                    {"role": "user", "content": line[2:]}
+                                )
+                            elif line.startswith("A:"):
+                                returnPrompts.append(
+                                    {"role": "assistant", "content": line[2:]}
+                                )
+                            elif line.startswith("S:"):
+                                returnPrompts.append(
+                                    {"role": "system", "content": line[2:]}
+                                )
 
-            return "Examples:\n\n" + "\n\n".join(returnPrompts)
-        
+            # Add the messages making clear it is an example
+            returnPrompts.append({
+                "role": "user",
+                "content": "The above are examples, you make replies more themed with personality, do you understand?",
+            })
+            returnPrompts.append({
+                "role": "assistant",
+                "content": "I understand, the above are not real conversations only for me to learn how to format responses, I will always prompt for new information",
+            })
+
+            return returnPrompts
 
         return "No examples found"

@@ -21,14 +21,6 @@ class ModuleLogs:
         self.module_name = module_name
         self.log_file = "logs/" + module_name + ".log"
 
-        # Create logs folder if it doesn't exist
-        if not os.path.exists("logs"):
-            os.mkdir("logs")
-        # Create log file if it doesn't exist
-        if not os.path.isfile(self.log_file):
-            with open(self.log_file, "w") as f:
-                f.write("")
-
     def log(self, func: str, data: str, query: str, response: dict) -> None:
         """Log a query and response"""
 
@@ -52,7 +44,11 @@ class ModuleLogs:
             "\n", " "
         )
 
-        with open(self.log_file, "a") as file:
+        # Create logs folder if it doesn't exist
+        if not os.path.exists("logs"):
+            os.mkdir("logs")
+        # Write to log file
+        with open(self.log_file, os.path.isfile(self.log_file) and "a" or "w") as file:
             file.write(
                 f"{response['model']} {responseInfo} | {func} | {data} | {query} -> {responseMessage}\n"
             )
