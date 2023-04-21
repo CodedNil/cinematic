@@ -335,44 +335,43 @@ class MyClient(discord.Client):
                 messages=[
                     {
                         "role": "user",
-                        "content": "What movie or series am I watching or soundtrack am I listening to? Make it up creatively. Use your imagination, and theme the responses with emojis",
+                        "content": "What movie am I watching? Make it up creatively. Use your imagination, and theme the responses with emojis",
                     },
                     {
                         "role": "assistant",
-                        "content": "movie;Iron Man;Munching on the 🍿",
+                        "content": "movie;Iron Man",
                     },
                     {
                         "role": "user",
-                        "content": "Another!",
+                        "content": "Another series!",
                     },
                     {
                         "role": "assistant",
-                        "content": "series;The Office;Having a great laugh 🤣",
+                        "content": "series;The Office",
                     },
                     {
                         "role": "user",
-                        "content": "Another!",
+                        "content": "Another soundtrack what am I listening to!",
                     },
                     {
                         "role": "assistant",
-                        "content": "soundtrack;Game Of Thrones;Crying my eyes out 🎵",
+                        "content": "soundtrack;Game Of Thrones",
                     },
                     {
                         "role": "user",
-                        "content": "Another!",
+                        "content": f"Another {random.choice(['movie', 'series', 'soundtrack'])}!",
                     },
                 ],
                 temperature=0.7,
             )
             activityDetails = response["choices"][0]["message"]["content"].split(";")
-            if len(activityDetails) == 3:
+            if len(activityDetails) == 2:
                 activityType = (
                     activityDetails[0] == "soundtrack"
                     and discord.ActivityType.listening
                     or discord.ActivityType.watching
                 )
                 activityName = activityDetails[1]
-                activityDetails = activityDetails[2]
                 await self.change_presence(
                     status=discord.Status.online,
                     activity=discord.Activity(
