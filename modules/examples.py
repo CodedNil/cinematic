@@ -56,6 +56,27 @@ A:[CMD~memory_update~loved movie animals]Thats good I will remember.""",
         "prompt": """U:the silly cinematic universe is pretty amazing
 A:[CMD~memory_update~likes the silly cinematic universe]Ive taken note.""",
     },
+    # Example - User asking about their memories
+    {
+        "queries": [
+            "wants memory queried",
+            "user asking what they have requested",
+            "user asking what movies they have added",
+            "user asking what series they have added",
+        ],
+        "prompt": """U:what movies have i requested?
+A:[CMDRET~memory_get~what movies do they want?]
+S:[RES~user wants stingate 1995 & continue 2007]
+A:You have requested Stingate 1995 and Stingate 2007""",
+    },
+    # Example - Lookup media
+    {
+        "queries": ["wants movie queried", "wants series queried"],
+        "prompt": """U:Is silly man on the server?
+A:[CMDRET~movie_lookup~Silly~{title;availability;year;wantedQuality;tmdbId;id}]II am looking this up on the server
+S:[RES~{Silly Man 1;available;2018;2160p;6655;22}{Silly Man 2;available;2020;2160p;7652;23}{Silly Man 3;available;2022;2160p;14433;45}]
+A:All 3 Silly Man movies are present on the server with a wanted quality of 4k.""",
+    },
     # Example - User wants movie added, already on server but user wants it on personal requests
     {
         "queries": ["wants movie added"],
@@ -142,7 +163,7 @@ A:[CMD~series_post~152347~4]Eastworld is on the way in 1080p""",
 A:[CMD~memory_update~wants movies in silly cinematic universe][CMDRET~movie_lookup~SCU~{title;availability;year;resolution;wantedQuality;tmdbId;id}]I'm looking this up, I have noted that you want them
 S:[RES~No results]
 A:[CMDRET~web_search~which movies are in the Silly Cinematic Universe?]My first search was unsucessful I am trying again
-S: [RES~Here is a list of all Silly Cinematic Universe movies in order: Silly Man 2018; Silly Man 2 2020; Thunder 2021; Captain Silly: The First Silly Hero 2021; Silly Man 3 2022]
+S:[RES~Here is a list of all Silly Cinematic Universe movies in order: Silly Man 2018; Silly Man 2 2020; Thunder 2021; Captain Silly: The First Silly Hero 2021; Silly Man 3 2022]
 A:[CMDRET~movie_lookup~Silly Man¬Thunder¬Captain Silly~{title;availability;year;wantedQuality;tmdbId;id}]I found 5 movies in the Silly Cinematic Universe, I am looking up their quality and availability on the server
 S: [RES~{Silly Man 1;available;2018;2160p;6655;22}{Silly Man 2;available;2020;2160p;7652;23}{Silly Man 3;available;2022;2160p;14433;45}][RES~{Thunder 1;available;2021;2160p;8775;24}][RES~{Captain Silly: The First Silly Hero;available;2021;2160p;12995;25}]
 A:All 5 movies are present in the server with a wanted quality of 4k.""",

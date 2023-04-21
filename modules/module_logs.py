@@ -54,3 +54,14 @@ class ModuleLogs:
             file.write(
                 f"{timestamp} {response['model']} {responseInfo} | {func} | {data.encode('utf-8')} | {query} -> {responseMessage}\n"
             )
+
+    def log_simple(self, data: str) -> None:
+        """Log a query and response"""
+
+        # Create logs folder if it doesn't exist
+        if not os.path.exists("logs"):
+            os.mkdir("logs")
+        # Write to log file
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        with open(self.log_file, os.path.isfile(self.log_file) and "a" or "w") as file:
+            file.write(f"{timestamp} {data.encode('utf-8')}\n")

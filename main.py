@@ -38,6 +38,7 @@ radarr_auth = (credentials["radarr"]["authuser"], credentials["radarr"]["authpas
 Radarr = MoviesAPI(credentials["openai"], radarr_url, radarr_headers, radarr_auth)
 
 Logs = ModuleLogs("main")
+LogsReview = ModuleLogs("review")
 
 Examples = ExamplesAPI(credentials["openai"])
 
@@ -111,8 +112,9 @@ async def runChatCompletion(
 
     # Respond to user
     if len(responseToUser) > 0:
-        # Add message into the botsMessage
-        await botsMessage.edit(content=responseToUser)
+        # Add message into the botsMessage, emoji to show the message is in progress
+        isntFinal = hasCmdRet and depth < 3
+        await botsMessage.edit(content=(isntFinal and "⌛ " or "✅ ") + responseToUser)
 
     # Execute commands and return responses
     if hasCmdRet:
@@ -177,7 +179,52 @@ async def runChatCompletion(
 class MyClient(discord.Client):
     """Discord bot client class"""
 
+    async def getMessageHistory(self, message) -> list:
+        """Get the message history of a message"""
+
+        # Check if message is a reply to the bot, if it is, create a message history
+        messageHistory = []
+        if message.reference is not None:
+            replied_to = await message.channel.fetch_message(
+                message.reference.message_id
+            )
+
+            if replied_to.author.id == self.user.id:
+                # If message is not completed, do nothing
+                content = replied_to.content
+                if not content.startswith("✅"):
+                    return []
+                # Remove all text after a ❗
+                if "❗" in content:
+                    content = content[: content.find("❗")]
+                # Add the message the assistant sent
+                messageHistory.append(
+                    {
+                        "role": "assistant",
+                        "content": content.replace("\n", " ").replace("✅ ", "").strip(),
+                    }
+                )
+                # Get the message the assistant was replying to, the users query
+                if replied_to.reference is not None:
+                    replied_to_to = await message.channel.fetch_message(
+                        replied_to.reference.message_id
+                    )
+                    # Add the users query to the message history
+                    messageHistory.append(
+                        {
+                            "role": "user",
+                            "content": replied_to_to.content.replace("\n", " ")
+                            .replace("<@" + str(self.user.id) + ">", "")
+                            .strip(),
+                        }
+                    )
+        # Flip the message history so it is in the correct order
+        messageHistory.reverse()
+        return messageHistory
+
     async def on_message(self, message):
+        """Event handler for when a message is sent in a channel the bot has access to"""
+
         # Don't reply to ourselves
         if message.author.id == self.user.id:
             return
@@ -192,17 +239,18 @@ class MyClient(discord.Client):
         if not mentionsBot:
             return
 
-        # If message is too long, reply with error
-        if len(message.content) > 400:
-            await message.reply("Message too long, please keep it under 400 characters")
-            return
+        # Check if message is a reply to the bot, if it is, create a message history
+        messageHistory = await self.getMessageHistory(message)
 
         # Get users id and name
         usersId = str(message.author.id)
         usersName = message.author.name
         # Get message content, removing mentions and newlines
-        userText = message.content.replace("\n", " ").strip()
-        userText = userText.replace("<@" + str(self.user.id) + ">", "").strip()
+        userText = (
+            message.content.replace("\n", " ")
+            .replace("<@" + str(self.user.id) + ">", "")
+            .strip()
+        )
 
         # Reply to message
         replyMessage = [
@@ -228,20 +276,53 @@ class MyClient(discord.Client):
             "In the spotlight! Let me process your message with the enthusiasm of a film festival enthusiast... 🎪",
             "Curtain up! Your message takes center stage, and I'm ready to give it a standing ovation... 🎦",
         ]
-        botsMessage = await message.reply(random.choice(replyMessage))
+        if message == None:
+            return
+        botsMessage = await message.reply("⌛ " + random.choice(replyMessage))
 
-        # Get relevant examples
-        relevantExamples = Examples.get_examples(userText)
+        # Get relevant examples, combine user text with message history
+        userTextHistory = ""
+        for message in messageHistory:
+            if message["role"] == "user":
+                userTextHistory += message["content"] + "\n"
+        relevantExamples = Examples.get_examples(userTextHistory + userText)
         # Get current messages
         currentMessage = []
         currentMessage.append({"role": "user", "content": f"Hi my name is {usersName}"})
         currentMessage.append(
-            {"role": "assistant", "content": f"Hi {usersName}, how can I help you?"}
+            {"role": "assistant", "content": f"Hi, how can I help you?"}
         )
+        # Add message history
+        for message in messageHistory:
+            currentMessage.append(message)
+        # Add users message
         currentMessage.append({"role": "user", "content": userText})
 
         await runChatCompletion(
             botsMessage, usersId, currentMessage, relevantExamples, 0
+        )
+
+    async def on_raw_reaction_add(self, payload):
+        """When you thumbs down a bots message, it submits it for manual review"""
+
+        channel = self.get_channel(payload.channel_id)
+        message = await channel.fetch_message(payload.message_id)
+
+        # If message is not from bot, do nothing
+        if message.author.id != self.user.id:
+            return
+        # If message is not completed, or already submitted, do nothing
+        if not message.content.startswith("✅") or "❗" in message.content:
+            return
+        # If reaction emoji is not thumbs down, do nothing
+        if payload.emoji.name != "👎":
+            return
+
+        # Submit message for manual review
+        LogsReview.log_simple(message.content)
+        await message.edit(
+            content=message.content
+            + "\n❗ This message has been submitted for manual review."
         )
 
 
