@@ -1,10 +1,9 @@
 import json
 import openai
-import requests
 from modules.module_logs import ModuleLogs
 
 from duckduckgo_search import ddg
-from bs4 import BeautifulSoup
+from trafilatura import fetch_url, extract
 
 
 class WebAPI:
@@ -33,104 +32,36 @@ class WebAPI:
         return search_results
 
     def advanced(self, query: str = "") -> str:
-        """Perform a DuckDuckGo Search, parse the results through gpt to get the top pick site based on the query, then scrape that website through gpt to return the answer to the prompt"""
+        """Perform a DuckDuckGo Search, then scrape the sites through gpt to return the answer to the prompt"""
         search_results = self.basic(query, 8)
 
-        # Run a chat completion to get the top pick site
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {
-                    "role": "user",
-                    "content": json.dumps(search_results)
-                    + "\nAbove is the results of a web search that I just performed for "
-                    + query
-                    + ", which one seems the best to scrape in more detail? Give me the numeric value of it (0, 1, 2, 3, etc.)",
-                }
-            ],
-            temperature=0.7,
-        )
-        # Log the response
-        self.logs.log("website_choice", json.dumps(search_results), query, response)
-
-        responseNumber = response["choices"][0]["message"]["content"]
-        # Test if the response number str is single digit number
-        if (
-            not responseNumber.isdigit()
-            or int(responseNumber) > len(search_results) - 1
-        ):
-            responseNumber = 0
-        else:
-            responseNumber = int(responseNumber)
-
-        # Scrape the site, fetch only the main content
-        url = search_results[responseNumber]["href"]
-        responseText = ""
-        try:
-            response = requests.get(url, timeout=5)
-            response.raise_for_status()
-            soup = BeautifulSoup(response.text, "html.parser")
-            responseText = soup.get_text().replace("  ", " ")
-        except requests.exceptions.RequestException as e:
-            # Try one more web search with a different website
-            responseNumber = responseNumber + 1
-            if responseNumber > len(search_results) - 1:
-                responseNumber = 0
-
+        # Go through each site until we get a good answer
+        for website in search_results:
             # Scrape the site, fetch only the main content
-            url = search_results[responseNumber]["href"]
-            try:
-                response = requests.get(url, timeout=5)
-                response.raise_for_status()
-                soup = BeautifulSoup(response.text, "html.parser")
-                responseText = soup.get_text().replace("  ", " ")
-            except requests.exceptions.RequestException as e:
-                responseText = "Error " + str(e)
+            url = website["href"]
+            downloaded = fetch_url(url)
+            if downloaded:
+                # Extract text data from website
+                result = extract(downloaded)
 
-        # Split the main content into chunks
-        lines = (line.strip() for line in responseText.splitlines())
-        chunks = (phrase.strip() for line in lines for phrase in line.split(" "))
-        # Group chunks to fit within the character limit
-        chunkGroups = [""]
-        for chunk in chunks:
-            if len(chunkGroups[-1]) + len(chunk) < 12000:
-                chunkGroups[-1] += chunk + " "
-            else:
-                chunkGroups.append(chunk + " ")
-        chunkGroups = [x.strip() for x in chunkGroups]
+                if len(result) > 4096:
+                    result = result[:4096]
 
-        # Summarise or get answers to each chunk with gpt
-        summary = ""
-        for chunk in chunkGroups:
-            # Run a chat completion to get the answer to the prompt
-            response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": f"{chunk}\nAbove is a chunk of the main content of the website {url}, give your best possible answer to '{query}'. If there is no good answer to the prompt, summarise the chunk instead",
-                    }
-                ],
-                temperature=0.7,
-            )
-            # Log the response
-            self.logs.log("summarise", chunk, query, response)
+                # Run a chat completion to get the answer to the prompt from the summarised text
+                response = openai.ChatCompletion.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": f"{result}\nAbove is the summary of the website {url}, give an answer to '{query}, if the context is insufficient, reply 'no answer'",
+                        },
+                    ],
+                    temperature=0.7,
+                )
+                # Log the response
+                self.logs.log("answer", result.replace("\n", " "), query, response)
 
-            summary += response["choices"][0]["message"]["content"] + " "
-        summary = summary.strip()
+                if response["choices"][0]["message"]["content"] != "no answer":
+                    return response["choices"][0]["message"]["content"]
 
-        # Run a chat completion to get the answer to the prompt from the summarised chunks
-        response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"{summary}\nAbove is the summarised chunks of the main content of the website {url}, give your best possible answer to '{query}'",
-                },
-            ],
-            temperature=0.7,
-        )
-        # Log the response
-        self.logs.log("answer", summary.replace("\n", " - "), query, response)
-
-        return response["choices"][0]["message"]["content"]
+        return "Could not find an answer to your question"

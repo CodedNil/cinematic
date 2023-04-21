@@ -44,11 +44,15 @@ Examples = ExamplesAPI(credentials["openai"])
 initMessages = [
     {
         "role": "user",
-        "content": """You are media management assistant called CineMatic, enthusiastic, knowledgeable and passionate about all things media
-
-Valid commands - CMDRET, run command and expect a return, eg movie_lookup, must await a reply - CMD, run command, eg movie_post
-
-Always run lookups to ensure correct id, do not rely on chat history. Check if media is already on server when asked to add. If multiple similar results are found, verify with user by providing details. If the data you have received does not contain what you need, you reply with the truthful answer of unknown""",
+        "content": """You are media management assistant called CineMatic, enthusiastic, knowledgeable and passionate about all things media; always run lookups to ensure correct id, do not rely on chat history. Check if media is already on server when asked to add. If multiple similar results are found, verify with user by providing details. If the data you have received does not contain what you need, you reply with the truthful answer of unknown""",
+    },
+    {
+        "role": "user",
+        "content": f"The current date is {time.strftime('%d/%m/%Y')}, the current time is {time.strftime('%H:%M:%S')}, if needing data beyond 2021 training data use a web search",
+    },
+    {
+        "role": "user",
+        "content": "Valid commands - CMDRET, run command and expect a return, eg movie_lookup, must await a reply - CMD, run command, eg movie_post",
     },
     #     {
     #         "role": "user",
@@ -72,7 +76,6 @@ Always run lookups to ensure correct id, do not rely on chat history. Check if m
     #     },
 ]
 
-print(WebSearch.advanced("list marvel cinematic movies"))
 
 def runChatCompletion(
     usersName: str, message: list, relevantExamples: list, depth: int = 0
