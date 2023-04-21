@@ -17,7 +17,7 @@ Examples = [
     # API - Adding media
     {
         "queries": ["wants movie added", "wants series added", "wants media added"],
-        "prompt": "U:Check if media is already on server when asked to add, if multiple similar results are found, verify with user by providing details",
+        "prompt": "U:Check if media is already on server when asked to add, if multiple similar results are found, verify with user by providing detail, always store a memory for the user that they want the media",
     },
     # API - Storing memories
     {
@@ -79,7 +79,7 @@ A:All 3 Silly Man movies are present on the server with a wanted quality of 4k."
     },
     # Example - User wants movie added, already on server but user wants it on personal requests
     {
-        "queries": ["wants movie added"],
+        "queries": ["wants movie added", "wants media added"],
         "prompt": """U:add stingate
 A:Movie or series?
 U:movie
@@ -111,7 +111,7 @@ aptain Silly: The First Silly Hero 2021 is often considered the best movie in th
     },
     # Example - Add first two Wizard Kid films
     {
-        "queries": ["wants movie added"],
+        "queries": ["wants movie added", "wants media added"],
         "prompt": """U:add the first two wizard kid films
 A:[CMDRET~memory_get~wants any of the wizard kid movies?][CMDRET~movie_lookup~Wizard Kid~{title;availability;year;tmdbId;id}]Looking up Wizard Kid
 S:[RES~user hasnt requested any wizard kid movies][RES~{Wizard Kid and Rock;unavailable;release year 2003;tmdbId 571;id N/A}{Wizard Kid and Princess;unavailable;release year 2012;tmdbId 4321;id N/A}{Wizard Kid and Wine Glass;unavailable;release year 2007;tmdbId 574;id N/A}{Wizard Kid and Room of Whispers;unavailable;release year 2005;tmdbId 572;id N/A}{Wizard Kid and Birdy;unavailable;release year 2009;tmdbId 575;id N/A}{Wizard Kid and Sticks;unavailable;release year 2012;tmdbId 5123}]
@@ -132,7 +132,11 @@ A:[CMD~movie_put~{"id":5,"qualityProfileId":5}]This has been updated to 4k.""",
     },
     # Example - Add movie trilogy Lady of the Necklace
     {
-        "queries": ["wants multiple movies added"],
+        "queries": [
+            "wants multiple movies added",
+            "wants media added",
+            "wants movie added",
+        ],
         "prompt": """U:add lotn trilogy
 A:[CMDRET~memory_get~wants lady of the necklace trilogy?][CMDRET~movie_lookup~Lady of the Necklace~{title;availability;year;tmdbId;id}]I'm checking the server, Ive noted that you want these movies
 S:[RES~no memories][RES~{Lady of the Necklace: The Two Cottages;available;2005;8833;125}{Lady of the Necklace: The Sisterhood of the Necklace;available;2004;8834;120}{Lady of the Necklace: Queens Return;available;2006;939;126}]
@@ -140,10 +144,7 @@ A:[CMD~memory_update~wants movies lady of the necklace trilogy]Lady of the Neckl
     },
     # Example - Add series Eastworld
     {
-        "queries": [
-            "wants series added",
-            "wants media added, potentially either series or movie",
-        ],
+        "queries": ["wants series added", "wants media added", "wants movie added"],
         "prompt": """U:add eastworld
 A:The movie or the series?
 U:the series
