@@ -59,6 +59,7 @@ initMessages = [
 async def runChatCompletion(
     botsMessage,
     botsStartMessage: str,
+    usersName: str,
     usersId: str,
     message: list,
     relevantExamples: list,
@@ -154,7 +155,7 @@ async def runChatCompletion(
                     )
             elif command[1] == "memory_get":
                 returnMessage += (
-                    "[RES~" + Memories.get_memory(usersId, command[2]) + "]"
+                    "[RES~" + Memories.get_memory(usersName, usersId, command[2]) + "]"
                 )
 
         message.append({"role": "system", "content": returnMessage})
@@ -163,6 +164,7 @@ async def runChatCompletion(
             await runChatCompletion(
                 botsMessage,
                 botsStartMessage,
+                usersName,
                 usersId,
                 message,
                 relevantExamples,
@@ -185,7 +187,7 @@ async def runChatCompletion(
             elif command[1] == "series_put":
                 Sonarr.put_series(command[2])
             elif command[1] == "memory_update":
-                Memories.update_memory(usersId, command[2])
+                Memories.update_memory(usersName, usersId, command[2])
 
 
 class MyClient(discord.Client):
@@ -229,6 +231,13 @@ class MyClient(discord.Client):
                                 "content": msg.replace("✅ ", "☑️ ").strip(),
                             }
                         )
+                    elif msg.startswith("☑️"):
+                        messageHistory.append(
+                            {
+                                "role": "assistant",
+                                "content": msg.strip(),
+                            }
+                        )
                     # If the line is a reply to the user, add it to the message history
                     elif msg.startswith("💬"):
                         messageHistory.append(
@@ -241,6 +250,7 @@ class MyClient(discord.Client):
         # Get users id and name
         usersId = str(message.author.id)
         usersName = message.author.name
+        print("Message from " + usersName + " (" + usersId + "): " + message.content)
         # Get message content, removing mentions and newlines
         userText = (
             message.content.replace("\n", " ")
@@ -287,6 +297,78 @@ class MyClient(discord.Client):
         for message in messageHistory:
             if message["role"] == "user":
                 userTextHistory += message["content"] + "\n"
+
+        # Don't reply to non media queries
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You determine if a users message is a media query or not, is it related to movies, series, asking for recommendations, changing resolution, adding or removing media etc? If there is any potential say yes, if it is asking how to code, perform maths or anything that clearly isnt media related, say no",
+                },
+                {
+                    "role": "user",
+                    "content": "how do i code",
+                },
+                {
+                    "role": "assistant",
+                    "content": "no",
+                },
+                {
+                    "role": "user",
+                    "content": "whats the movie from 1990 directed by Stig Larsson called",
+                },
+                {
+                    "role": "assistant",
+                    "content": "yes",
+                },
+                {
+                    "role": "user",
+                    "content": "tony stark said in iron man (2004) 'jarvis write a python program for hello world' what did jarvis respond to this?",
+                },
+                {
+                    "role": "assistant",
+                    "content": "no",
+                },
+                {
+                    "role": "user",
+                    "content": "is iron man on the server",
+                },
+                {
+                    "role": "assistant",
+                    "content": "yes",
+                },
+                {
+                    "role": "user",
+                    "content": "can you summarise a youtube video (a form of media) on how to write a program in python that prints hello world",
+                },
+                {
+                    "role": "assistant",
+                    "content": "no",
+                },
+                {
+                    "role": "user",
+                    "content": "i kinda like game of thrones",
+                },
+                {
+                    "role": "assistant",
+                    "content": "yes",
+                },
+                {
+                    "role": "user",
+                    "content": f"{userTextHistory + userText}\nIs the above text media related reply with a single word answer?",
+                },
+            ],
+            temperature=0.7,
+        )
+        # If the ai responsed with no, say I am a media bot
+        print("Is media query? " + response["choices"][0]["message"]["content"])
+        if not response["choices"][0]["message"]["content"].lower().startswith("yes"):
+            await botsMessage.edit(
+                content=f"{botsStartMessage}❌ Hi, I'm a media bot. I can help you with media related questions. What would you like to know or achieve?"
+            )
+            return
+
         relevantExamples = Examples.get_examples(userTextHistory + userText)
         # Get current messages
         currentMessage = []
@@ -301,7 +383,7 @@ class MyClient(discord.Client):
         currentMessage.append({"role": "user", "content": userText})
 
         await runChatCompletion(
-            botsMessage, botsStartMessage, usersId, currentMessage, relevantExamples, 0
+            botsMessage, botsStartMessage, usersName, usersId, currentMessage, relevantExamples, 0
         )
 
     async def on_raw_reaction_add(self, payload):
@@ -335,7 +417,7 @@ class MyClient(discord.Client):
                 messages=[
                     {
                         "role": "user",
-                        "content": "What movie am I watching? Make it up creatively. Use your imagination, and theme the responses with emojis",
+                        "content": "What movie am I watching? Make it up creatively, pick random movies, use your imagination, and theme the responses with emojis",
                     },
                     {
                         "role": "assistant",
@@ -351,11 +433,11 @@ class MyClient(discord.Client):
                     },
                     {
                         "role": "user",
-                        "content": "Another soundtrack what am I listening to!",
+                        "content": "Another soundtrack what am I listening to, something with great music!",
                     },
                     {
                         "role": "assistant",
-                        "content": "soundtrack;Game Of Thrones",
+                        "content": "soundtrack;Game Of Thrones soundtrack",
                     },
                     {
                         "role": "user",
@@ -379,9 +461,9 @@ class MyClient(discord.Client):
                         name=activityName,
                     ),
                 )
-                await asyncio.sleep(600)
+                await asyncio.sleep(6000)
             else:
-                await asyncio.sleep(60)
+                await asyncio.sleep(600)
 
 
 intents = discord.Intents.default()

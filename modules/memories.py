@@ -14,7 +14,7 @@ class MemoriesAPI:
         # Create logs
         self.logs = ModuleLogs("memories")
 
-    def get_memory(self, usersId: str, query: str) -> str:
+    def get_memory(self, usersName: str, usersId: str, query: str) -> str:
         """Get a memory from the users memory file with ai querying"""
 
         # Get users memories
@@ -36,7 +36,7 @@ class MemoriesAPI:
                     },
                     {
                         "role": "system",
-                        "content": "Memories:TV series wanted: N/A | Movies wanted: All 7 ABC movies | Opinions: Enjoyed series Eastworld",
+                        "content": "Memories:Name: N/A | TV series wanted: N/A | Movies wanted: All 7 ABC movies | Opinions: Enjoyed series Eastworld",
                     },
                     {
                         "role": "user",
@@ -62,7 +62,7 @@ class MemoriesAPI:
                         "role": "assistant",
                         "content": "yes I understand those are examples and future messages are the real ones",
                     },
-                    {"role": "user", "content": "Memories:" + userMemories},
+                    {"role": "user", "content": f"My name is {usersName} my memories are:{userMemories}"},
                     {"role": "user", "content": query},
                 ],
                 temperature=0.7,
@@ -75,7 +75,7 @@ class MemoriesAPI:
         else:
             return "no memories"
 
-    def update_memory(self, usersId: str, query: str) -> None:
+    def update_memory(self, usersName: str, usersId: str, query: str) -> None:
         """Update a memory in the users memory file with ai"""
 
         # Get users memories
@@ -87,7 +87,7 @@ class MemoriesAPI:
         if usersId in memories:
             userMemories = memories[usersId]
         else:
-            userMemories = ""
+            userMemories = "Name: N/A | TV series wanted: N/A | Movies wanted: N/A | Opinions: N/A"
 
         # Add the new memory with gpt through the users memory file
         response = openai.ChatCompletion.create(
@@ -99,17 +99,17 @@ class MemoriesAPI:
                 },
                 {
                     "role": "system",
-                    "content": "Memories:TV series wanted: Eastworld | Movies wanted: N/A | Opinions: Enjoyed movie Puppet 1",
+                    "content": "Memories: Name: N/A |TV series wanted: Eastworld | Movies wanted: N/A | Opinions: Enjoyed movie Puppet 1",
                 },
                 {"role": "user", "content": "Add 'loved movie stingate 1995'"},
                 {
                     "role": "assistant",
-                    "content": "TV series wanted: Eastworld | Movies wanted: N/A | Opinions: Enjoyed movie Puppet 1 and loved movie Stingate 1995",
+                    "content": "Name: N/A |TV series wanted: Eastworld | Movies wanted: N/A | Opinions: Enjoyed movie Puppet 1 and loved movie Stingate 1995",
                 },
                 {"role": "user", "content": "Add 'doesnt want series eastworld'"},
                 {
                     "role": "assistant",
-                    "content": "TV series wanted: N/A | Movies wanted: N/A | Opinions: Enjoyed movie Puppet 1 and loved movie Stingate 1995",
+                    "content": "Name: N/A | TV series wanted: N/A | Movies wanted: N/A | Opinions: Enjoyed movie Puppet 1 and loved movie Stingate 1995",
                 },
                 {
                     "role": "user",
@@ -119,7 +119,7 @@ class MemoriesAPI:
                     "role": "assistant",
                     "content": "yes I understand those are examples and future messages are the real ones",
                 },
-                {"role": "user", "content": "Memories:" + userMemories},
+                {"role": "user", "content": f"My name is {usersName} my memories are:{userMemories}"},
                 {"role": "user", "content": f"Add '{query}'"},
             ],
             temperature=0.7,

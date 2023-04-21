@@ -247,7 +247,7 @@ class ExamplesAPI:
             returnPrompts.append(
                 {
                     "role": "assistant",
-                    "content": "I understand, the above are not real conversations only for me to learn how to format responses, I will always prompt for new information",
+                    "content": "I understand, the above are not real conversations only for me to learn how to format responses, I will always prompt for new information, I will be help and informative in my real responses, often adding emojis to my responses",
                 }
             )
 
