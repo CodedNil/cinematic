@@ -61,7 +61,9 @@ class WebAPI:
                 # Log the response
                 self.logs.log("answer", result.replace("\n", " "), query, response)
 
-                if response["choices"][0]["message"]["content"] != "no answer":
-                    return response["choices"][0]["message"]["content"]
+                # Check if the response is valid
+                responseMessage = response["choices"][0]["message"]["content"].strip()
+                if responseMessage.lower() not in ["no answer", "no answer.", "no answer!"]:
+                    return responseMessage
 
         return "Could not find an answer to your question"
