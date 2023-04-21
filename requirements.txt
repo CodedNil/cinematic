@@ -3,3 +3,4 @@ requests
 duckduckgo-search
 transformers
 trafilatura
+discord

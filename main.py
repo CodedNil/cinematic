@@ -2,6 +2,8 @@ import openai
 import json
 import os
 import time
+import discord
+import random
 
 # Modules
 from modules.module_logs import ModuleLogs
@@ -53,8 +55,8 @@ initMessages = [
 ]
 
 
-def runChatCompletion(
-    usersName: str, message: list, relevantExamples: list, depth: int = 0
+async def runChatCompletion(
+    botsMessage, usersId: str, message: list, relevantExamples: list, depth: int = 0
 ) -> None:
     # Get the chat query to enter
     chatQuery = initMessages.copy()
@@ -86,9 +88,6 @@ def runChatCompletion(
 
     responseMessage = response["choices"][0]["message"]["content"]
     responseToUser = responseMessage[:]
-    print("")
-    print("Assistant: " + responseMessage.replace("\n", " "))
-    print("")
 
     # Extract commands from the response, commands are within [], everything outside of [] is a response to the user
     commands = []
@@ -102,16 +101,18 @@ def runChatCompletion(
             hasCmdRet = True
         elif "CMD" in commands[-1]:
             hasCmd = True
-        responseToUser = responseToUser.replace("[" + commands[-1] + "]", "").strip()
-        responseToUser = responseToUser.replace("  ", " ")
+        responseToUser = (
+            responseToUser.replace("[" + commands[-1] + "]", "")
+            .replace("  ", " ")
+            .strip()
+        )
 
     message.append({"role": "assistant", "content": responseMessage})
 
     # Respond to user
     if len(responseToUser) > 0:
-        print("")
-        print("CineMatic: " + responseToUser.replace("\n", " "))
-        print("")
+        # Add message into the botsMessage
+        await botsMessage.edit(content=responseToUser)
 
     # Execute commands and return responses
     if hasCmdRet:
@@ -144,16 +145,15 @@ def runChatCompletion(
                     )
             elif command[1] == "memory_get":
                 returnMessage += (
-                    "[RES~" + Memories.get_memory(usersName, command[2]) + "]"
+                    "[RES~" + Memories.get_memory(usersId, command[2]) + "]"
                 )
 
         message.append({"role": "system", "content": returnMessage})
-        print("")
-        print("System: " + returnMessage.replace("\n", " "))
-        print("")
 
         if depth < 3:
-            runChatCompletion(usersName, message, relevantExamples, depth + 1)
+            await runChatCompletion(
+                botsMessage, usersId, message, relevantExamples, depth + 1
+            )
     # Execute regular commands
     elif hasCmd:
         for command in commands:
@@ -171,56 +171,82 @@ def runChatCompletion(
             elif command[1] == "series_put":
                 Sonarr.put_series(command[2])
             elif command[1] == "memory_update":
-                Memories.update_memory(usersName, command[2])
+                Memories.update_memory(usersId, command[2])
 
 
-# Loop prompting for input
-usersName = "User"
-for i in range(10):
-    # Get user input
-    userText = input("User: ")
-    # Get timestamp seconds from epoch
-    timestamp = time.time()
+class MyClient(discord.Client):
+    """Discord bot client class"""
 
-    # Create chat_history.json if it doesn't exist
-    if not os.path.exists("chat_history.json"):
-        with open("chat_history.json", "w") as f:
-            json.dump({}, f)
-    # Get chat history from json file
-    chatHistory = {}
-    with open("chat_history.json", "r") as f:
-        chatHistory = json.load(f)
-    # If user doesnt have a chat history, create one
-    if usersName not in chatHistory:
-        chatHistory[usersName] = []
+    async def on_message(self, message):
+        # Don't reply to ourselves
+        if message.author.id == self.user.id:
+            return
 
-    # Remove users chat history more than 20 minutes ago
-    for msg in reversed(chatHistory[usersName]):
-        if float(msg.split(">")[0]) < time.time() - (60 * 20):
-            chatHistory[usersName].remove(msg)
+        # Check if message mentions bot
+        mentionsBot = False
+        if message.mentions:
+            for mention in message.mentions:
+                if mention.id == self.user.id:
+                    mentionsBot = True
+                    break
+        if not mentionsBot:
+            return
 
-    # Get relevant examples
-    relevantExamples = Examples.get_examples(userText)
-    # Get current message and include chatHistory
-    currentMessage = []
-    if len(chatHistory[usersName]) > 0:
+        # If message is too long, reply with error
+        if len(message.content) > 200:
+            await message.reply("Message too long, please keep it under 200 characters")
+            return
+
+        # Get users id and name
+        usersId = message.author.id
+        usersName = message.author.name
+        # Get message content, removing mentions and newlines
+        userText = message.content.replace("\n", " ").strip()
+        userText = userText.replace("<@" + str(self.user.id) + ">", "").strip()
+
+        # Reply to message
+        replyMessage = [
+            "Hey there! Super excited to process your message, give me just a moment... 🎬",
+            "Oh, a message! Can't wait to dive into this one - I'm on it... 🎥",
+            "Hey, awesome! A new message to explore! Let me work my media magic... 📺",
+            "Woo-hoo! A fresh message to check out! Let me put my CineMatic touch on it... 🍿",
+            "Yay, another message! Time to unleash my media passion, be right back... 📼",
+            "Hey, a message! I'm so excited to process this one, just a moment... 🎞",
+            "Aha! A message has arrived! Let me roll out the red carpet for it... 🎞️",
+            "Ooh, a new message to dissect! Allow me to unleash my inner film buff... 🎦",
+            "Lights, camera, action! Time to process your message with a cinematic twist... 📽️",
+            "Hooray, a message to dig into! Let's make this a blockbuster experience... 🌟",
+            "Greetings! Your message has caught my eye, let me give it the star treatment... 🎟️",
+            "Popcorn's ready! Let me take a closer look at your message like a true film fanatic... 🍿",
+            "Woohoo! A message to analyze! Let me work on it while humming my favorite movie tunes... 🎶",
+            "A new message to dive into! Let me put on my director's hat and get to work... 🎩",
+            "And... action! Time to process your message with my media expertise... 📹",
+            "Hold on to your seats! I'm about to process your message with the excitement of a movie premiere... 🌆",
+            "Sending your message to the cutting room! Let me work on it like a skilled film editor... 🎞️",
+            "A message has entered the scene! Let me put my media prowess to work on it... 🎭",
+            "Your message is the star of the show! Let me process it with the passion of a true cinephile... 🌟",
+            "In the spotlight! Let me process your message with the enthusiasm of a film festival enthusiast... 🎪",
+            "Curtain up! Your message takes center stage, and I'm ready to give it a standing ovation... 🎦",
+        ]
+        botsMessage = await message.reply(random.choice(replyMessage))
+
+        # Get relevant examples
+        relevantExamples = Examples.get_examples(userText)
+        # Get current messages
+        currentMessage = []
+        currentMessage.append({"role": "user", "content": f"Hi my name is {usersName}"})
         currentMessage.append(
-            {
-                "role": "user",
-                "content": "Chat History: " + "|".join(chatHistory[usersName]),
-            }
+            {"role": "assistant", "content": f"Hi {usersName}, how can I help you?"}
         )
-        currentMessage.append(
-            {
-                "role": "assistant",
-                "content": "I have noted your message history thank you",
-            }
-        )
-    currentMessage.append({"role": "user", "content": userText})
-    runChatCompletion(usersName, currentMessage, relevantExamples, 0)
+        currentMessage.append({"role": "user", "content": userText})
 
-    # Add userText to chatHistory with timestamp
-    chatHistory[usersName].append(str(timestamp) + ">" + userText)
-    # Write chatHistory into json file
-    with open("chat_history.json", "w") as f:
-        json.dump(chatHistory, f)
+        await runChatCompletion(
+            botsMessage, usersId, currentMessage, relevantExamples, 0
+        )
+
+
+intents = discord.Intents.default()
+intents.message_content = True
+
+client = MyClient(intents=intents)
+client.run(credentials["discord"])

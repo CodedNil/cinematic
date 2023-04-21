@@ -22,7 +22,7 @@ Examples = [
     # API - Storing memories
     {
         "queries": ["wants memory stored", "shared an opinion", "wants memory updated"],
-        "prompt": "U:You store important information about users, which media they have requested and liked, used to create recommendations from previous likes/requests, or avoid suggesting media they have already seen",
+        "prompt": "U:CMDRET memory_get (query=) CMD memory_update (query=) You store important information about users, which media they have requested and liked, used to create recommendations from previous likes/requests, or avoid suggesting media they have already seen",
     },
     # API - Removing media
     {
@@ -33,11 +33,28 @@ Examples = [
         ],
         "prompt": "U:Only admins can remove media files, when a user asks to remove media, change their memory to not requesting it, ask for a review",
     },
-    # Example - User likes movie animals
+    # Example - User sharing what they like
     {
-        "queries": ["shared an opinion"],
+        "queries": [
+            "shared an opinion",
+            "likes a movie",
+            "likes a series",
+            "has seen a movie",
+            "has seen a series",
+        ],
         "prompt": """U:i really love the movie animals
 A:[CMD~memory_update~loved movie animals]Thats good I will remember.""",
+    },
+    {
+        "queries": [
+            "shared an opinion",
+            "likes a movie",
+            "likes a series",
+            "has seen a movie",
+            "has seen a series",
+        ],
+        "prompt": """U:the silly cinematic universe is pretty amazing
+A:[CMD~memory_update~likes the silly cinematic universe]Ive taken note.""",
     },
     # Example - User wants movie added, already on server but user wants it on personal requests
     {
