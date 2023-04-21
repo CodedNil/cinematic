@@ -50,5 +50,5 @@ class ModuleLogs:
         # Write to log file
         with open(self.log_file, os.path.isfile(self.log_file) and "a" or "w") as file:
             file.write(
-                f"{response['model']} {responseInfo} | {func} | {data} | {query} -> {responseMessage}\n"
+                f"{response['model']} {responseInfo} | {func} | {data.encode('utf-8')} | {query} -> {responseMessage}\n"
             )

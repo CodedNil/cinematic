@@ -72,6 +72,7 @@ Always run lookups to ensure correct id, do not rely on chat history. Check if m
     #     },
 ]
 
+print(WebSearch.advanced("list marvel cinematic movies"))
 
 def runChatCompletion(
     usersName: str, message: list, relevantExamples: list, depth: int = 0

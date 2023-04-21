@@ -4,17 +4,7 @@ import requests
 from modules.module_logs import ModuleLogs
 
 from duckduckgo_search import ddg
-from readability import Document
 from bs4 import BeautifulSoup
-from summarizer import Summarizer
-
-# BERT
-import logging
-from transformers import logging as transformers_logging
-
-# Suppress BERT logging
-logging.basicConfig(level=logging.INFO)
-transformers_logging.set_verbosity(transformers_logging.ERROR)
 
 
 class WebAPI:
@@ -61,7 +51,7 @@ class WebAPI:
             temperature=0.7,
         )
         # Log the response
-        self.logs.log("website_choice", search_results, query, response)
+        self.logs.log("website_choice", json.dumps(search_results), query, response)
 
         responseNumber = response["choices"][0]["message"]["content"]
         # Test if the response number str is single digit number
@@ -79,7 +69,8 @@ class WebAPI:
         try:
             response = requests.get(url, timeout=5)
             response.raise_for_status()
-            responseText = response.text
+            soup = BeautifulSoup(response.text, "html.parser")
+            responseText = soup.get_text().replace("  ", " ")
         except requests.exceptions.RequestException as e:
             # Try one more web search with a different website
             responseNumber = responseNumber + 1
@@ -91,46 +82,55 @@ class WebAPI:
             try:
                 response = requests.get(url, timeout=5)
                 response.raise_for_status()
-                responseText = response.text
+                soup = BeautifulSoup(response.text, "html.parser")
+                responseText = soup.get_text().replace("  ", " ")
             except requests.exceptions.RequestException as e:
-                responseText = "Error: " + str(e)
+                responseText = "Error " + str(e)
 
-        document = Document(responseText)
-        content_html = document.summary()
+        # Split the main content into chunks
+        lines = (line.strip() for line in responseText.splitlines())
+        chunks = (phrase.strip() for line in lines for phrase in line.split(" "))
+        # Group chunks to fit within the character limit
+        chunkGroups = [""]
+        for chunk in chunks:
+            if len(chunkGroups[-1]) + len(chunk) < 12000:
+                chunkGroups[-1] += chunk + " "
+            else:
+                chunkGroups.append(chunk + " ")
+        chunkGroups = [x.strip() for x in chunkGroups]
 
-        # Get only the text from the main content
-        soup = BeautifulSoup(content_html, "html.parser")
-        main_content_text = soup.get_text()
+        # Summarise or get answers to each chunk with gpt
+        summary = ""
+        for chunk in chunkGroups:
+            # Run a chat completion to get the answer to the prompt
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": f"{chunk}\nAbove is a chunk of the main content of the website {url}, give your best possible answer to '{query}'. If there is no good answer to the prompt, summarise the chunk instead",
+                    }
+                ],
+                temperature=0.7,
+            )
+            # Log the response
+            self.logs.log("summarise", chunk, query, response)
 
-        # Summarize the main content using BERT
-        summarizer = Summarizer("distilbert-base-uncased")
-        summary = summarizer(main_content_text)
+            summary += response["choices"][0]["message"]["content"] + " "
+        summary = summary.strip()
 
-        # Check if the summary length is within the character limit
-        if len(summary) <= 6000:
-            summary = summary
-        else:
-            summary = main_content_text[:6000]
-
-        # Run a chat completion to get the answer to the prompt
+        # Run a chat completion to get the answer to the prompt from the summarised chunks
         response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=[
                 {
-                    "role": "system",
-                    "content": "You are a media management assistant called CineMatic, you are enthusiastic, knowledgeable and passionate about all things media. If you are unsure or it is subjective, mention that",
-                },
-                {"role": "system", "content": summary},
-                {
                     "role": "user",
-                    "content": f"Above is the results of a web search from {search_results[responseNumber]['href']} that was just performed to gain the latest information, give your best possible answer to '{query}'?",
+                    "content": f"{summary}\nAbove is the summarised chunks of the main content of the website {url}, give your best possible answer to '{query}'",
                 },
             ],
             temperature=0.7,
         )
         # Log the response
-        self.logs.log(
-            "answer", summary.replace("\n", " - "), query, response.replace("\n", " - ")
-        )
+        self.logs.log("answer", summary.replace("\n", " - "), query, response)
 
         return response["choices"][0]["message"]["content"]
