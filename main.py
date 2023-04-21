@@ -1,9 +1,9 @@
 import openai
 import json
-import os
 import time
 import discord
 import random
+import asyncio
 
 # Modules
 from modules.module_logs import ModuleLogs
@@ -57,7 +57,12 @@ initMessages = [
 
 
 async def runChatCompletion(
-    botsMessage, usersId: str, message: list, relevantExamples: list, depth: int = 0
+    botsMessage,
+    botsStartMessage: str,
+    usersId: str,
+    message: list,
+    relevantExamples: list,
+    depth: int = 0,
 ) -> None:
     # Get the chat query to enter
     chatQuery = initMessages.copy()
@@ -114,7 +119,9 @@ async def runChatCompletion(
     if len(responseToUser) > 0:
         # Add message into the botsMessage, emoji to show the message is in progress
         isntFinal = hasCmdRet and depth < 3
-        await botsMessage.edit(content=(isntFinal and "⌛ " or "✅ ") + responseToUser)
+        await botsMessage.edit(
+            content=botsStartMessage + (isntFinal and "⌛ " or "✅ ") + responseToUser
+        )
 
     # Execute commands and return responses
     if hasCmdRet:
@@ -154,7 +161,12 @@ async def runChatCompletion(
 
         if depth < 3:
             await runChatCompletion(
-                botsMessage, usersId, message, relevantExamples, depth + 1
+                botsMessage,
+                botsStartMessage,
+                usersId,
+                message,
+                relevantExamples,
+                depth + 1,
             )
     # Execute regular commands
     elif hasCmd:
@@ -179,49 +191,6 @@ async def runChatCompletion(
 class MyClient(discord.Client):
     """Discord bot client class"""
 
-    async def getMessageHistory(self, message) -> list:
-        """Get the message history of a message"""
-
-        # Check if message is a reply to the bot, if it is, create a message history
-        messageHistory = []
-        if message.reference is not None:
-            replied_to = await message.channel.fetch_message(
-                message.reference.message_id
-            )
-
-            if replied_to.author.id == self.user.id:
-                # If message is not completed, do nothing
-                content = replied_to.content
-                if not content.startswith("✅"):
-                    return []
-                # Remove all text after a ❗
-                if "❗" in content:
-                    content = content[: content.find("❗")]
-                # Add the message the assistant sent
-                messageHistory.append(
-                    {
-                        "role": "assistant",
-                        "content": content.replace("\n", " ").replace("✅ ", "").strip(),
-                    }
-                )
-                # Get the message the assistant was replying to, the users query
-                if replied_to.reference is not None:
-                    replied_to_to = await message.channel.fetch_message(
-                        replied_to.reference.message_id
-                    )
-                    # Add the users query to the message history
-                    messageHistory.append(
-                        {
-                            "role": "user",
-                            "content": replied_to_to.content.replace("\n", " ")
-                            .replace("<@" + str(self.user.id) + ">", "")
-                            .strip(),
-                        }
-                    )
-        # Flip the message history so it is in the correct order
-        messageHistory.reverse()
-        return messageHistory
-
     async def on_message(self, message):
         """Event handler for when a message is sent in a channel the bot has access to"""
 
@@ -240,7 +209,34 @@ class MyClient(discord.Client):
             return
 
         # Check if message is a reply to the bot, if it is, create a message history
-        messageHistory = await self.getMessageHistory(message)
+        messageHistory = []
+        if message.reference is not None:
+            replied_to = await message.channel.fetch_message(
+                message.reference.message_id
+            )
+            if replied_to.author.id == self.user.id:
+                # See if the message is completed
+                if "✅" not in replied_to.content:
+                    return
+                # Split message by lines
+                content = replied_to.content.split("\n")
+                for msg in content:
+                    # If the line is a reply to the bot, add it to the message history
+                    if msg.startswith("✅"):
+                        messageHistory.append(
+                            {
+                                "role": "assistant",
+                                "content": msg.replace("✅ ", "☑️ ").strip(),
+                            }
+                        )
+                    # If the line is a reply to the user, add it to the message history
+                    elif msg.startswith("💬"):
+                        messageHistory.append(
+                            {
+                                "role": "user",
+                                "content": msg.strip(),
+                            }
+                        )
 
         # Get users id and name
         usersId = str(message.author.id)
@@ -278,7 +274,13 @@ class MyClient(discord.Client):
         ]
         if message == None:
             return
-        botsMessage = await message.reply("⌛ " + random.choice(replyMessage))
+        botsStartMessage = ""
+        for msg in messageHistory:
+            botsStartMessage += msg["content"] + "\n"
+        botsStartMessage += f"💬 {userText}\n"
+        botsMessage = await message.reply(
+            f"{botsStartMessage}⌛ {random.choice(replyMessage)}"
+        )
 
         # Get relevant examples, combine user text with message history
         userTextHistory = ""
@@ -299,7 +301,7 @@ class MyClient(discord.Client):
         currentMessage.append({"role": "user", "content": userText})
 
         await runChatCompletion(
-            botsMessage, usersId, currentMessage, relevantExamples, 0
+            botsMessage, botsStartMessage, usersId, currentMessage, relevantExamples, 0
         )
 
     async def on_raw_reaction_add(self, payload):
@@ -324,6 +326,63 @@ class MyClient(discord.Client):
             content=message.content
             + "\n❗ This message has been submitted for manual review."
         )
+
+    async def on_ready(self):
+        # Set the bot status to watching x movie or series or listening to x soundtrack every 10 minutes
+        while True:
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": "What movie or series am I watching or soundtrack am I listening to? Make it up creatively. Use your imagination, and theme the responses with emojis",
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "movie;Iron Man;Munching on the 🍿",
+                    },
+                    {
+                        "role": "user",
+                        "content": "Another!",
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "series;The Office;Having a great laugh 🤣",
+                    },
+                    {
+                        "role": "user",
+                        "content": "Another!",
+                    },
+                    {
+                        "role": "assistant",
+                        "content": "soundtrack;Game Of Thrones;Crying my eyes out 🎵",
+                    },
+                    {
+                        "role": "user",
+                        "content": "Another!",
+                    },
+                ],
+                temperature=0.7,
+            )
+            activityDetails = response["choices"][0]["message"]["content"].split(";")
+            if len(activityDetails) == 3:
+                activityType = (
+                    activityDetails[0] == "soundtrack"
+                    and discord.ActivityType.listening
+                    or discord.ActivityType.watching
+                )
+                activityName = activityDetails[1]
+                activityDetails = activityDetails[2]
+                await self.change_presence(
+                    status=discord.Status.online,
+                    activity=discord.Activity(
+                        type=activityType,
+                        name=activityName,
+                    ),
+                )
+                await asyncio.sleep(600)
+            else:
+                await asyncio.sleep(60)
 
 
 intents = discord.Intents.default()
