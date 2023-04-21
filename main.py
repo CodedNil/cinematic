@@ -362,7 +362,7 @@ class MyClient(discord.Client):
             temperature=0.7,
         )
         # If the ai responsed with no, say I am a media bot
-        print("Is media query? " + response["choices"][0]["message"]["content"])
+        print("Is media query? " + response["choices"][0]["message"]["content"].replace("\n", " "))
         if not response["choices"][0]["message"]["content"].lower().startswith("yes"):
             await botsMessage.edit(
                 content=f"{botsStartMessage}❌ Hi, I'm a media bot. I can help you with media related questions. What would you like to know or achieve?"
@@ -417,53 +417,23 @@ class MyClient(discord.Client):
                 messages=[
                     {
                         "role": "user",
-                        "content": "What movie am I watching? Make it up creatively, pick random movies, use your imagination, and theme the responses with emojis",
-                    },
-                    {
-                        "role": "assistant",
-                        "content": "movie;Iron Man",
-                    },
-                    {
-                        "role": "user",
-                        "content": "Another series!",
-                    },
-                    {
-                        "role": "assistant",
-                        "content": "series;The Office",
-                    },
-                    {
-                        "role": "user",
-                        "content": "Another soundtrack what am I listening to, something with great music!",
-                    },
-                    {
-                        "role": "assistant",
-                        "content": "soundtrack;Game Of Thrones soundtrack",
-                    },
-                    {
-                        "role": "user",
-                        "content": f"Another {random.choice(['movie', 'series', 'soundtrack'])}!",
+                        "content": "Give me a random movie or tv series, just the title nothing else, doesn't need to be popular",
                     },
                 ],
                 temperature=0.7,
             )
-            activityDetails = response["choices"][0]["message"]["content"].split(";")
-            if len(activityDetails) == 2:
-                activityType = (
-                    activityDetails[0] == "soundtrack"
-                    and discord.ActivityType.listening
-                    or discord.ActivityType.watching
-                )
-                activityName = activityDetails[1]
-                await self.change_presence(
-                    status=discord.Status.online,
-                    activity=discord.Activity(
-                        type=activityType,
-                        name=activityName,
-                    ),
-                )
-                await asyncio.sleep(6000)
-            else:
-                await asyncio.sleep(600)
+            activityName = response["choices"][0]["message"]["content"].strip()
+            # If wrapped in quotes, remove them
+            if activityName.startswith('"') and activityName.endswith('"'):
+                activityName = activityName[1:-1]
+            await self.change_presence(
+                status=discord.Status.online,
+                activity=discord.Activity(
+                    type=discord.ActivityType.watching,
+                    name=activityName,
+                ),
+            )
+            await asyncio.sleep(6000)
 
 
 intents = discord.Intents.default()
