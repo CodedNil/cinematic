@@ -14,7 +14,7 @@ class MemoriesAPI:
         # Create logs
         self.logs = ModuleLogs("memories")
 
-    def get_memory(self, user: str, query: str) -> str:
+    def get_memory(self, usersId: str, query: str) -> str:
         """Get a memory from the users memory file with ai querying"""
 
         # Get users memories
@@ -23,20 +23,20 @@ class MemoriesAPI:
             with open("memories.json") as json_file:
                 memories = json.load(json_file)
 
-        if user in memories:
-            userMemories = memories[user]
+        if usersId in memories:
+            userMemories = memories[usersId]
 
             # Search with gpt through the users memory file
             response = openai.ChatCompletion.create(
                 model="gpt-3.5-turbo",
                 messages=[
                     {
-                        "role": "user",
+                        "role": "system",
                         "content": "You are a memory access assistant, you view a memory file and query it for information",
                     },
                     {
-                        "role": "user",
-                        "content": "memories:requested all 7 abc movies, enjoyed eastworld",
+                        "role": "system",
+                        "content": "Memories:TV series wanted: N/A | Movies wanted: All 7 ABC movies | Opinions: Enjoyed series Eastworld",
                     },
                     {
                         "role": "user",
@@ -62,7 +62,7 @@ class MemoriesAPI:
                         "role": "assistant",
                         "content": "yes I understand those are examples and future messages are the real ones",
                     },
-                    {"role": "user", "content": "memories:" + userMemories},
+                    {"role": "user", "content": "Memories:" + userMemories},
                     {"role": "user", "content": query},
                 ],
                 temperature=0.7,
@@ -75,7 +75,7 @@ class MemoriesAPI:
         else:
             return "no memories"
 
-    def update_memory(self, user: str, query: str) -> None:
+    def update_memory(self, usersId: str, query: str) -> None:
         """Update a memory in the users memory file with ai"""
 
         # Get users memories
@@ -84,32 +84,32 @@ class MemoriesAPI:
             with open("memories.json") as json_file:
                 memories = json.load(json_file)
 
-        if user in memories:
-            userMemories = memories[user]
+        if usersId in memories:
+            userMemories = memories[usersId]
         else:
             userMemories = ""
 
         # Add the new memory with gpt through the users memory file
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4",
             messages=[
                 {
-                    "role": "user",
+                    "role": "system",
                     "content": "You are a memory writer assistant, you view a memory file and update it with information, you write extremely brief summaries",
                 },
                 {
-                    "role": "user",
-                    "content": "memories:enjoyed movie puppet 1, wants series eastworld",
+                    "role": "system",
+                    "content": "Memories:TV series wanted: Eastworld | Movies wanted: N/A | Opinions: Enjoyed movie Puppet 1",
                 },
                 {"role": "user", "content": "Add 'loved movie stingate 1995'"},
                 {
                     "role": "assistant",
-                    "content": "enjoyed movie puppet 1 and loved movie stingate 1995, wants series eastworld",
+                    "content": "TV series wanted: Eastworld | Movies wanted: N/A | Opinions: Enjoyed movie Puppet 1 and loved movie Stingate 1995",
                 },
                 {"role": "user", "content": "Add 'doesnt want series eastworld'"},
                 {
                     "role": "assistant",
-                    "content": "enjoyed movie puppet 1 and loved movie stingate 1995",
+                    "content": "TV series wanted: N/A | Movies wanted: N/A | Opinions: Enjoyed movie Puppet 1 and loved movie Stingate 1995",
                 },
                 {
                     "role": "user",
@@ -119,7 +119,7 @@ class MemoriesAPI:
                     "role": "assistant",
                     "content": "yes I understand those are examples and future messages are the real ones",
                 },
-                {"role": "user", "content": "memories:" + userMemories},
+                {"role": "user", "content": "Memories:" + userMemories},
                 {"role": "user", "content": f"Add '{query}'"},
             ],
             temperature=0.7,
@@ -129,7 +129,7 @@ class MemoriesAPI:
         self.logs.log("update_memory", userMemories, query, response)
 
         # Update the users memories
-        memories[user] = response["choices"][0]["message"]["content"]
+        memories[usersId] = response["choices"][0]["message"]["content"]
 
         # Save the memories to memories.json
         with open("memories.json", "w") as outfile:

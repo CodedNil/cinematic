@@ -193,12 +193,12 @@ class MyClient(discord.Client):
             return
 
         # If message is too long, reply with error
-        if len(message.content) > 200:
-            await message.reply("Message too long, please keep it under 200 characters")
+        if len(message.content) > 400:
+            await message.reply("Message too long, please keep it under 400 characters")
             return
 
         # Get users id and name
-        usersId = message.author.id
+        usersId = str(message.author.id)
         usersName = message.author.name
         # Get message content, removing mentions and newlines
         userText = message.content.replace("\n", " ").strip()
