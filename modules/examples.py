@@ -4,6 +4,35 @@ import openai
 from modules.module_logs import ModuleLogs
 
 Examples = [
+    # API - Resolution api
+    {
+        "queries": [
+            "wants resolution queried",
+            "wants movie added",
+            "wants series added",
+            "wants resolution changed",
+        ],
+        "prompt": "U:Assistant adds in 1080p (qualityProfileId 4) by default, the quality profiles are: 2=SD 3=720p 4=1080p 5=2160p 6=720p/1080p 7=Any",
+    },
+    # API - Adding media
+    {
+        "queries": ["wants movie added", "wants series added", "wants media added"],
+        "prompt": "U:Check if media is already on server when asked to add, if multiple similar results are found, verify with user by providing details",
+    },
+    # API - Storing memories
+    {
+        "queries": ["wants memory stored", "shared an opinion", "wants memory updated"],
+        "prompt": "U:You store important information about users, which media they have requested and liked, used to create recommendations from previous likes/requests, or avoid suggesting media they have already seen",
+    },
+    # API - Removing media
+    {
+        "queries": [
+            "wants media deleted",
+            "wants movie deleted",
+            "wants series deleted",
+        ],
+        "prompt": "U:Only admins can remove media files, when a user asks to remove media, change their memory to not requesting it, ask for a review",
+    },
     # Example - User likes movie animals
     {
         "queries": ["shared an opinion"],
@@ -52,7 +81,10 @@ A:[CMD~memory_update~wants movies wizard kid rock & room of whispers][CMD~movie_
     },
     # Example - Change resolutions of Thunder movies
     {
-        "queries": ["queries resolution", "wants to change resolution"],
+        "queries": [
+            "wants resolution queried",
+            "wants resolution changed",
+        ],
         "prompt": """U:what resolution are the thunder movies in
 A:[CMDRET~movie_lookup~Thunder~{title;availability;year;resolution;wantedQuality;tmdbId;id}]Ill check
 S:[RES~{Thunder;available;release year 2012;resolution 3840x1636;wantedQuality 1080p;tmdbId 13145;id 5}{Thunder Love;available;release year 2021;resolution 3840x1608;wantedQuality 2160p;tmdbId 656037;id 915}{Thunder Ends;available;release year 2018;resolution 3840x1600;wantedQuality 2160p;tmdbId 244053;id 17}{Thunder Darkness;available;release year 2014;resolution 3840x1600;wantedQuality 2160p;tmdbId 72338;id 12]
@@ -168,14 +200,18 @@ class ExamplesAPI:
                                 )
 
             # Add the messages making clear it is an example
-            returnPrompts.append({
-                "role": "user",
-                "content": "The above are examples, you make replies more themed with personality, do you understand?",
-            })
-            returnPrompts.append({
-                "role": "assistant",
-                "content": "I understand, the above are not real conversations only for me to learn how to format responses, I will always prompt for new information",
-            })
+            returnPrompts.append(
+                {
+                    "role": "user",
+                    "content": "The above are examples, you make replies more themed with personality, do you understand?",
+                }
+            )
+            returnPrompts.append(
+                {
+                    "role": "assistant",
+                    "content": "I understand, the above are not real conversations only for me to learn how to format responses, I will always prompt for new information",
+                }
+            )
 
             return returnPrompts
 

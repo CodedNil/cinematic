@@ -44,36 +44,12 @@ Examples = ExamplesAPI(credentials["openai"])
 initMessages = [
     {
         "role": "user",
-        "content": """You are media management assistant called CineMatic, enthusiastic, knowledgeable and passionate about all things media; always run lookups to ensure correct id, do not rely on chat history. Check if media is already on server when asked to add. If multiple similar results are found, verify with user by providing details. If the data you have received does not contain what you need, you reply with the truthful answer of unknown""",
+        "content": """You are media management assistant called CineMatic, enthusiastic, knowledgeable and passionate about all things media; always run lookups to ensure correct id, do not rely on chat history, if the data you have received does not contain what you need, you reply with the truthful answer of unknown""",
     },
     {
         "role": "user",
         "content": f"The current date is {time.strftime('%d/%m/%Y')}, the current time is {time.strftime('%H:%M:%S')}, if needing data beyond 2021 training data use a web search",
     },
-    {
-        "role": "user",
-        "content": "Valid commands - CMDRET, run command and expect a return, eg movie_lookup, must await a reply - CMD, run command, eg movie_post",
-    },
-    #     {
-    #         "role": "user",
-    #         "content": """CMDRET web_search (query) do web search, on error alter query try again
-    # Movies only available commands:
-    # CMDRET movie_lookup (term=, query=) Always look for availability;title;year;tmdbId;id and anything else you might need, if user is making queries about resolution, include resolution in the search etc
-    # CMD movie_post (tmdbId=, qualityProfileId=) add in 1080p by default, the quality profiles are: 2=SD 3=720p 4=1080p 5=2160p 6=720p/1080p 7=Any
-    # CMD movie_put (id=, qualityProfileId=) update data such as quality profile of the movie
-    # CMD movie_delete (id=) delete movie from server, uses the id not tmdbId, admin only command
-    # Shows only available commands:
-    # CMDRET series_lookup (term=, fields=)
-    # CMD series_post (tvdbId=, qualityProfileId=)
-    # CMD series_put (id=, qualityProfileId=)
-    # CMD series_delete (id=) admin only command
-    # Memories only available commands:
-    # CMDRET memory_get (query=)
-    # CMD memory_update (query=)
-    # You store important information about users, which media they have requested and liked
-    # Used to create recommendations from previous likes/requests, or avoid suggesting media they have already seen
-    # When a user asks to remove media, change their memory to not requesting it, ask for a review, only admins can remove media""",
-    #     },
 ]
 
 

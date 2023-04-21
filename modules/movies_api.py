@@ -224,7 +224,7 @@ class MoviesAPI:
             headers=self.radarr_headers,
             auth=self.radarr_auth,
             data=json.dumps(lookup),
-        ).text
+        )
 
     def delete_movie(self, id: int) -> None:
         """Delete a movie from radarr"""

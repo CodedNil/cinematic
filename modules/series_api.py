@@ -172,7 +172,7 @@ class SeriesAPI:
             headers=self.sonarr_headers,
             auth=self.sonarr_auth,
             data=json.dumps(lookup),
-        ).text
+        )
 
     def delete_series(self, id: int) -> None:
         requests.delete(
