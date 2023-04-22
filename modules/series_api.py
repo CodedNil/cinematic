@@ -41,14 +41,28 @@ class SeriesAPI:
     async def lookup_series(self, term: str, query: str) -> str:
         """Lookup a series and return the information, uses ai to parse the information to required relevant to query"""
 
-        # Search sonarr
+        # Add basics to query if not already there
+        basics = ["title", "year", "availability", "tvdbId"]
+        for basic in basics:
+            if basic not in query:
+                query += ";" + basic
+
+        # Is searching for all?
+        searchAll = term.lower() in ["all", "everything"]
+        if searchAll:
+            query = "title;year;availability"
+
+        # Search radarr
+        searchUrl = (
+            searchAll and "/api/v3/series" or ("/api/v3/series/lookup?term=" + term)
+        )
         response = requests.get(
-            self.sonarr_url + "/api/v3/series/lookup?term=" + term,
+            self.sonarr_url + searchUrl,
             headers=self.sonarr_headers,
             auth=self.sonarr_auth,
         )
         if response.status_code != 200:
-            return "Error: " + response.status_code
+            return "Error: " + str(response.status_code)
 
         # If no results, return
         if len(response.json()) == 0:
@@ -145,7 +159,7 @@ class SeriesAPI:
     async def add_series(self, tvdbId: int, qualityProfileId: int) -> None:
         """Add a series to sonarr from tvdbId with the given quality profile"""
 
-        lookup = self.lookup_series_tvdbId(tvdbId)
+        lookup = await self.lookup_series_tvdbId(tvdbId)
         lookup["qualityProfileId"] = qualityProfileId
         lookup["addOptions"] = {"searchForMissingEpisodes": True}
         lookup["rootFolderPath"] = "/tv"
@@ -163,7 +177,7 @@ class SeriesAPI:
 
     async def put_series(self, fieldsJson: str) -> None:
         fields = json.loads(fieldsJson)
-        lookup = self.get_series(fields["id"])
+        lookup = await self.get_series(fields["id"])
         for field in fields:
             lookup[field] = fields[field]
 

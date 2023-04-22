@@ -41,14 +41,28 @@ class MoviesAPI:
     async def lookup_movie(self, term: str, query: str) -> str:
         """Lookup a movie and return the information, uses ai to parse the information to required relevant to query"""
 
+        # Add basics to query if not already there
+        basics = ["title", "year", "availability", "tmdbId"]
+        for basic in basics:
+            if basic not in query:
+                query += ";" + basic
+
+        # Is searching for all?
+        searchAll = term.lower() in ["all", "everything"]
+        if searchAll:
+            query = "title;year;availability"
+
         # Search radarr
+        searchUrl = (
+            searchAll and "/api/v3/movie" or ("/api/v3/movie/lookup?term=" + term)
+        )
         response = requests.get(
-            self.radarr_url + "/api/v3/movie/lookup?term=" + term,
+            self.radarr_url + searchUrl,
             headers=self.radarr_headers,
             auth=self.radarr_auth,
         )
         if response.status_code != 200:
-            return "Error: " + response.status_code
+            return "Error: " + str(response.status_code)
 
         # If no results, return
         if len(response.json()) == 0:
@@ -193,7 +207,7 @@ class MoviesAPI:
     async def add_movie(self, tmdbId: int, qualityProfileId: int) -> None:
         """Add a movie to radarr from tmdbId with the given quality profile"""
 
-        lookup = self.lookup_movie_tmdbId(tmdbId)
+        lookup = await self.lookup_movie_tmdbId(tmdbId)
         lookup["qualityProfileId"] = qualityProfileId
         lookup["addOptions"] = {
             "searchForMovie": True,
@@ -214,7 +228,7 @@ class MoviesAPI:
         """Update a movie in radarr with the given fields data"""
 
         fields = json.loads(fieldsJson)
-        lookup = self.get_movie(fields["id"])
+        lookup = await self.get_movie(fields["id"])
         for field in fields:
             lookup[field] = fields[field]
 

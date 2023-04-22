@@ -91,7 +91,13 @@ A:[CMD~memory_update~wants movie stingate ark]I've memorised this""",
     },
     # Example - User wants series Silly Times from 1080p to 720p then deletes it and reviews it
     {
-        "queries": ["wants media quality changed", "wants media deleted"],
+        "queries": [
+            "wants media quality changed",
+            "wants media deleted",
+            "wants series deleted",
+            "wants resolution changed",
+            "wants quality queried",
+        ],
         "prompt": """U:silly times to 720p
 A:[CMDRET~series_lookup~Silly Times~{title;availability;year;tvdbId;wantedQuality;id}]Looking up Silly Times
 S:[RES~{Silly Times;available on the server;year 2013;tvdbId 152837;wantedQuality 1080p;id 63}]
@@ -111,7 +117,12 @@ aptain Silly: The First Silly Hero 2021 is often considered the best movie in th
     },
     # Example - Add first two Wizard Kid films
     {
-        "queries": ["wants movie added", "wants media added"],
+        "queries": [
+            "wants movie added",
+            "wants media added",
+            "requesting media",
+            "talking about a collection of media",
+        ],
         "prompt": """U:add the first two wizard kid films
 A:[CMDRET~memory_get~wants any of the wizard kid movies?][CMDRET~movie_lookup~Wizard Kid~{title;availability;year;tmdbId;id}]Looking up Wizard Kid
 S:[RES~user hasnt requested any wizard kid movies][RES~{Wizard Kid and Rock;unavailable;release year 2003;tmdbId 571;id N/A}{Wizard Kid and Princess;unavailable;release year 2012;tmdbId 4321;id N/A}{Wizard Kid and Wine Glass;unavailable;release year 2007;tmdbId 574;id N/A}{Wizard Kid and Room of Whispers;unavailable;release year 2005;tmdbId 572;id N/A}{Wizard Kid and Birdy;unavailable;release year 2009;tmdbId 575;id N/A}{Wizard Kid and Sticks;unavailable;release year 2012;tmdbId 5123}]
@@ -134,6 +145,8 @@ A:[CMD~movie_put~{"id":5,"qualityProfileId":5}]This has been updated to 4k.""",
     {
         "queries": [
             "wants multiple movies added",
+            "talking about a collection of media",
+            "requesting media",
             "wants media added",
             "wants movie added",
         ],
@@ -144,7 +157,12 @@ A:[CMD~memory_update~wants movies lady of the necklace trilogy]Lady of the Neckl
     },
     # Example - Add series Eastworld
     {
-        "queries": ["wants series added", "wants media added", "wants movie added"],
+        "queries": [
+            "wants series added",
+            "wants media added",
+            "wants movie added",
+            "requesting media",
+        ],
         "prompt": """U:add eastworld
 A:The movie or the series?
 U:the series
@@ -177,6 +195,17 @@ A:All 5 movies are present in the server with a wanted quality of 4k.""",
 A:[CMDRET~memory_get~what movies does user like?]I'm looking up my memories of what you like
 S:[RES~user likes all the scu movies, action movies, and the lady of the necklace trilogy]
 A:Based on your past likes, you might love the Wizard Kid movies, there are 7 of them, is there any genre you are currently in the mood for?""",
+    },
+    # Example - What are the top movies on the server
+    {
+        "queries": [
+            "asking for a recommendation",
+            "asking what is on the server",
+            "asking what is available",
+            "asking for every movie on the server",
+        ],
+        "prompt": """U:what are the top movies on the server
+A:[CMDRET~movie_lookup~all~{title;availability;year}]I'm looking this up""",
     },
 ]
 

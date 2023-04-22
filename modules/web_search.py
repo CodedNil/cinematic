@@ -89,5 +89,5 @@ class WebAPI:
         )
 
         # Log the response
-        self.logs.log("answer", json.dumps(result).replace("\n", " "), query, response)
+        self.logs.log("answer", json.dumps(result).replace("\n", " ")[:200], query, response)
         return response["choices"][0]["message"]["content"].strip()

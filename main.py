@@ -48,7 +48,7 @@ Examples = ExamplesAPI(credentials["openai"])
 initMessages = [
     {
         "role": "user",
-        "content": "You are media management assistant called CineMatic, enthusiastic, knowledgeable and passionate about all things media; always run lookups to ensure correct id, do not rely on chat history, if the data you have received does not contain what you need, you reply with the truthful answer of unknown, responses should all be on one line and compact language",
+        "content": "You are media management assistant called CineMatic, enthusiastic, knowledgeable and passionate about all things media; always run lookups to ensure correct id, do not rely on chat history, if the data you have received does not contain what you need, you reply with the truthful answer of unknown, responses should all be on one line (with comma separation) and compact language",
     },
     {
         "role": "user",
@@ -92,7 +92,7 @@ async def runChatCompletion(
         model="gpt-4", messages=chatQuery + message, temperature=0.7
     )
     # Log the response
-    Logs.log("thread", json.dumps(chatQuery + message, indent=4), "", response)
+    Logs.log("thread", json.dumps(message, indent=4), "", response)
 
     responseMessage = (
         response["choices"][0]["message"]["content"].replace("\n", " ").strip()
@@ -170,7 +170,7 @@ async def runChatCompletion(
         message.append({"role": "system", "content": returnMessage})
 
         if depth < 3:
-            runChatCompletion(
+            await runChatCompletion(
                 botsMessage,
                 botsStartMessage,
                 usersName,
@@ -184,19 +184,19 @@ async def runChatCompletion(
         for command in commands:
             command = command.split("~")
             if command[1] == "movie_post":
-                Radarr.add_movie(command[2], command[3])
+                await Radarr.add_movie(command[2], command[3])
             # elif command[1] == 'movie_delete':
-            #     Radarr.delete_movie(command[2])
+            #     await Radarr.delete_movie(command[2])
             elif command[1] == "movie_put":
-                Radarr.put_movie(command[2])
+                await Radarr.put_movie(command[2])
             elif command[1] == "series_post":
-                Sonarr.add_series(command[2], command[3])
+                await Sonarr.add_series(command[2], command[3])
             # elif command[1] == 'series_delete':
-            #     Sonarr.delete_series(command[2])
+            #     await Sonarr.delete_series(command[2])
             elif command[1] == "series_put":
-                Sonarr.put_series(command[2])
+                await Sonarr.put_series(command[2])
             elif command[1] == "memory_update":
-                Memories.update_memory(usersName, usersId, command[2])
+                await Memories.update_memory(usersName, usersId, command[2])
 
 
 class MyClient(discord.Client):
@@ -326,11 +326,7 @@ class MyClient(discord.Client):
             temperature=0.7,
         )
         LogsRelevance.log("check", userTextHistory + userText, "", response)
-        # If the ai responsed with yes, say I am a media bot
-        print(
-            "Is irrelevant? "
-            + response["choices"][0]["message"]["content"].replace("\n", " ")
-        )
+        # If the ai responsed with yes, say I am a media bot and return
         if response["choices"][0]["message"]["content"].lower().startswith("yes"):
             await botsMessage.edit(
                 content=f"{botsStartMessage}❌ Hi, I'm a media bot. I can help you with media related questions. What would you like to know or achieve?"
@@ -373,7 +369,10 @@ class MyClient(discord.Client):
         if message.author.id != self.user.id:
             return
         # If message is not completed, or already submitted, do nothing
-        if not message.content.startswith("✅") or "❗" in message.content:
+        if (
+            not ("✅" in message.content or "❌" in message.content)
+            or "❗" in message.content
+        ):
             return
         # If reaction emoji is not thumbs down, do nothing
         if payload.emoji.name != "👎":
@@ -394,7 +393,7 @@ class MyClient(discord.Client):
                 messages=[
                     {
                         "role": "user",
-                        "content": "Give me a random movie or tv series, just the title nothing else, doesn't need to be popular",
+                        "content": f"Give me a random movie or tv series, just the title nothing else, doesn't need to be popular, the current date and time is {time.strftime('%d/%m/%Y %H:%M')}, theme it based on these details",
                     },
                 ],
                 temperature=0.7,
