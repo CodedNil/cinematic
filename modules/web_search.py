@@ -16,7 +16,7 @@ class WebAPI:
         # Create logs
         self.logs = ModuleLogs("web")
 
-    def basic(self, query: str = "", numResults: int = 4) -> dict:
+    async def basic(self, query: str = "", numResults: int = 4) -> dict:
         """Perform a DuckDuckGo Search and return the results as a JSON string"""
         search_results = []
         if not query:
@@ -31,9 +31,9 @@ class WebAPI:
 
         return search_results
 
-    def advanced(self, query: str = "") -> str:
+    async def advanced(self, query: str = "") -> str:
         """Perform a DuckDuckGo Search, then scrape the sites through gpt to return the answer to the prompt"""
-        search_results = self.basic(query, 8)
+        search_results = await self.basic(query, 8)
 
         # Go through each site until we get a good answer
         for website in search_results:

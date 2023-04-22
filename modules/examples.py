@@ -190,7 +190,7 @@ class ExamplesAPI:
         # Create logs
         self.logs = ModuleLogs("examples")
 
-    def get_examples(self, message: str) -> str:
+    async def get_examples(self, message: str) -> str:
         """Receive message from user and compare it to the examples, return relevant examples"""
 
         # Get all the example queries
@@ -248,7 +248,7 @@ class ExamplesAPI:
             returnPrompts.append(
                 {
                     "role": "assistant",
-                    "content": "I understand, the above are not real conversations only for me to learn how to format responses, I will always prompt for new information, I will be help and informative in my real responses, often adding emojis to my responses",
+                    "content": "I understand, the above are not real conversations only for me to learn how to format responses, I will always prompt for new information 📰, I will be helpful and informative in my real responses, often adding emojis to my responses, I'll usually end my responses with a followup question such as 'what did you think of it?'",
                 }
             )
 

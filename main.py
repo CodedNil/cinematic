@@ -39,6 +39,7 @@ Radarr = MoviesAPI(credentials["openai"], radarr_url, radarr_headers, radarr_aut
 
 Logs = ModuleLogs("main")
 LogsReview = ModuleLogs("review")
+LogsRelevance = ModuleLogs("relevance")
 
 Examples = ExamplesAPI(credentials["openai"])
 
@@ -47,11 +48,11 @@ Examples = ExamplesAPI(credentials["openai"])
 initMessages = [
     {
         "role": "user",
-        "content": """You are media management assistant called CineMatic, enthusiastic, knowledgeable and passionate about all things media; always run lookups to ensure correct id, do not rely on chat history, if the data you have received does not contain what you need, you reply with the truthful answer of unknown""",
+        "content": "You are media management assistant called CineMatic, enthusiastic, knowledgeable and passionate about all things media; always run lookups to ensure correct id, do not rely on chat history, if the data you have received does not contain what you need, you reply with the truthful answer of unknown, responses should all be on one line and compact language",
     },
     {
         "role": "user",
-        "content": f"The current date is {time.strftime('%d/%m/%Y')}, the current time is {time.strftime('%H:%M:%S')}, if needing data beyond 2021 training data use a web search",
+        "content": f"The current date is {time.strftime('%d/%m/%Y')}, the current time is {time.strftime('%H:%M:%S')}, if needing data beyond 2021 training data you can use a web search",
     },
 ]
 
@@ -93,7 +94,9 @@ async def runChatCompletion(
     # Log the response
     Logs.log("thread", json.dumps(chatQuery + message, indent=4), "", response)
 
-    responseMessage = response["choices"][0]["message"]["content"]
+    responseMessage = (
+        response["choices"][0]["message"]["content"].replace("\n", " ").strip()
+    )
     responseToUser = responseMessage[:]
 
     # Extract commands from the response, commands are within [], everything outside of [] is a response to the user
@@ -130,38 +133,44 @@ async def runChatCompletion(
         for command in commands:
             command = command.split("~")
             if command[1] == "web_search":
-                returnMessage += "[RES~" + WebSearch.advanced(command[2]) + "]"
+                returnMessage += "[RES~" + await WebSearch.advanced(command[2]) + "]"
             elif command[1] == "movie_lookup":
                 # If multiple terms, split and search for each
                 if len(command[2].split("¬")) > 1:
                     for term in command[2].split("¬"):
                         returnMessage += (
-                            "[RES~" + Radarr.lookup_movie(term, command[3]) + "]"
+                            "[RES~" + await Radarr.lookup_movie(term, command[3]) + "]"
                         )
                 else:
                     returnMessage += (
-                        "[RES~" + Radarr.lookup_movie(command[2], command[3]) + "]"
+                        "[RES~"
+                        + await Radarr.lookup_movie(command[2], command[3])
+                        + "]"
                     )
             elif command[1] == "series_lookup":
                 # If multiple terms, split and search for each
                 if len(command[2].split("¬")) > 1:
                     for term in command[2].split("¬"):
                         returnMessage += (
-                            "[RES~" + Sonarr.lookup_series(term, command[3]) + "]"
+                            "[RES~" + await Sonarr.lookup_series(term, command[3]) + "]"
                         )
                 else:
                     returnMessage += (
-                        "[RES~" + Sonarr.lookup_series(command[2], command[3]) + "]"
+                        "[RES~"
+                        + await Sonarr.lookup_series(command[2], command[3])
+                        + "]"
                     )
             elif command[1] == "memory_get":
                 returnMessage += (
-                    "[RES~" + Memories.get_memory(usersName, usersId, command[2]) + "]"
+                    "[RES~"
+                    + await Memories.get_memory(usersName, usersId, command[2])
+                    + "]"
                 )
 
         message.append({"role": "system", "content": returnMessage})
 
         if depth < 3:
-            await runChatCompletion(
+            runChatCompletion(
                 botsMessage,
                 botsStartMessage,
                 usersName,
@@ -299,77 +308,36 @@ class MyClient(discord.Client):
                 userTextHistory += message["content"] + "\n"
 
         # Don't reply to non media queries
+        messages = [
+            {
+                "role": "system",
+                "content": "You determine if a users message is irrelevant to you, is it related to movies, series, asking for recommendations, changing resolution, adding or removing media etc? You reply with a single word answer, yes or no. If you are unsure respond with no.",
+            }
+        ]
+        messages.append(
+            {
+                "role": "user",
+                "content": f"{userTextHistory + userText}\nDo not respond to the above message, is the above text irrelevant, reply with a single word answer?",
+            },
+        )
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You determine if a users message is a media query or not, is it related to movies, series, asking for recommendations, changing resolution, adding or removing media etc? If there is any potential say yes, if it is asking how to code, perform maths or anything that clearly isnt media related, say no",
-                },
-                {
-                    "role": "user",
-                    "content": "how do i code",
-                },
-                {
-                    "role": "assistant",
-                    "content": "no",
-                },
-                {
-                    "role": "user",
-                    "content": "whats the movie from 1990 directed by Stig Larsson called",
-                },
-                {
-                    "role": "assistant",
-                    "content": "yes",
-                },
-                {
-                    "role": "user",
-                    "content": "tony stark said in iron man (2004) 'jarvis write a python program for hello world' what did jarvis respond to this?",
-                },
-                {
-                    "role": "assistant",
-                    "content": "no",
-                },
-                {
-                    "role": "user",
-                    "content": "is iron man on the server",
-                },
-                {
-                    "role": "assistant",
-                    "content": "yes",
-                },
-                {
-                    "role": "user",
-                    "content": "can you summarise a youtube video (a form of media) on how to write a program in python that prints hello world",
-                },
-                {
-                    "role": "assistant",
-                    "content": "no",
-                },
-                {
-                    "role": "user",
-                    "content": "i kinda like game of thrones",
-                },
-                {
-                    "role": "assistant",
-                    "content": "yes",
-                },
-                {
-                    "role": "user",
-                    "content": f"{userTextHistory + userText}\nIs the above text media related reply with a single word answer?",
-                },
-            ],
+            model="gpt-4",
+            messages=messages,
             temperature=0.7,
         )
-        # If the ai responsed with no, say I am a media bot
-        print("Is media query? " + response["choices"][0]["message"]["content"].replace("\n", " "))
-        if not response["choices"][0]["message"]["content"].lower().startswith("yes"):
+        LogsRelevance.log("check", userTextHistory + userText, "", response)
+        # If the ai responsed with yes, say I am a media bot
+        print(
+            "Is irrelevant? "
+            + response["choices"][0]["message"]["content"].replace("\n", " ")
+        )
+        if response["choices"][0]["message"]["content"].lower().startswith("yes"):
             await botsMessage.edit(
                 content=f"{botsStartMessage}❌ Hi, I'm a media bot. I can help you with media related questions. What would you like to know or achieve?"
             )
             return
 
-        relevantExamples = Examples.get_examples(userTextHistory + userText)
+        relevantExamples = await Examples.get_examples(userTextHistory + userText)
         # Get current messages
         currentMessage = []
         currentMessage.append({"role": "user", "content": f"Hi my name is {usersName}"})
@@ -382,8 +350,17 @@ class MyClient(discord.Client):
         # Add users message
         currentMessage.append({"role": "user", "content": userText})
 
-        await runChatCompletion(
-            botsMessage, botsStartMessage, usersName, usersId, currentMessage, relevantExamples, 0
+        # Run chat completion async
+        asyncio.create_task(
+            runChatCompletion(
+                botsMessage,
+                botsStartMessage,
+                usersName,
+                usersId,
+                currentMessage,
+                relevantExamples,
+                0,
+            )
         )
 
     async def on_raw_reaction_add(self, payload):

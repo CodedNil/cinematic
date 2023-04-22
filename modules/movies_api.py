@@ -38,7 +38,7 @@ class MoviesAPI:
         # Create logs
         self.logs = ModuleLogs("movies")
 
-    def lookup_movie(self, term: str, query: str) -> str:
+    async def lookup_movie(self, term: str, query: str) -> str:
         """Lookup a movie and return the information, uses ai to parse the information to required relevant to query"""
 
         # Search radarr
@@ -161,7 +161,7 @@ class MoviesAPI:
 
         return response["choices"][0]["message"]["content"]
 
-    def lookup_movie_tmdbId(self, tmdbId: int) -> dict:
+    async def lookup_movie_tmdbId(self, tmdbId: int) -> dict:
         """Lookup a movie by tmdbId and return the information"""
 
         # Search radarr
@@ -175,7 +175,7 @@ class MoviesAPI:
 
         return response.json()
 
-    def get_movie(self, id: int) -> dict:
+    async def get_movie(self, id: int) -> dict:
         """Get a movie by id and return the information"""
 
         # Search radarr
@@ -190,7 +190,7 @@ class MoviesAPI:
 
         return response.json()
 
-    def add_movie(self, tmdbId: int, qualityProfileId: int) -> None:
+    async def add_movie(self, tmdbId: int, qualityProfileId: int) -> None:
         """Add a movie to radarr from tmdbId with the given quality profile"""
 
         lookup = self.lookup_movie_tmdbId(tmdbId)
@@ -210,7 +210,7 @@ class MoviesAPI:
             data=json.dumps(lookup),
         )
 
-    def put_movie(self, fieldsJson: str) -> None:
+    async def put_movie(self, fieldsJson: str) -> None:
         """Update a movie in radarr with the given fields data"""
 
         fields = json.loads(fieldsJson)
@@ -226,7 +226,7 @@ class MoviesAPI:
             data=json.dumps(lookup),
         )
 
-    def delete_movie(self, id: int) -> None:
+    async def delete_movie(self, id: int) -> None:
         """Delete a movie from radarr"""
         requests.delete(
             self.radarr_url + "/api/v3/movie/" + str(id) + "?deleteFiles=true",

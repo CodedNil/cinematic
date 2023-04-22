@@ -38,7 +38,7 @@ class SeriesAPI:
         # Create logs
         self.logs = ModuleLogs("series")
 
-    def lookup_series(self, term: str, query: str) -> str:
+    async def lookup_series(self, term: str, query: str) -> str:
         """Lookup a series and return the information, uses ai to parse the information to required relevant to query"""
 
         # Search sonarr
@@ -116,7 +116,7 @@ class SeriesAPI:
 
         return response["choices"][0]["message"]["content"]
 
-    def lookup_series_tvdbId(self, tvdbId: int) -> dict:
+    async def lookup_series_tvdbId(self, tvdbId: int) -> dict:
         """Lookup a series by tvdbId and return the information"""
 
         # Search sonarr
@@ -130,7 +130,7 @@ class SeriesAPI:
 
         return response.json()[0]
 
-    def get_series(self, id: int) -> dict:
+    async def get_series(self, id: int) -> dict:
         response = requests.get(
             self.sonarr_url + "/api/v3/series/" + str(id),
             headers=self.sonarr_headers,
@@ -142,7 +142,7 @@ class SeriesAPI:
 
         return response.json()
 
-    def add_series(self, tvdbId: int, qualityProfileId: int) -> None:
+    async def add_series(self, tvdbId: int, qualityProfileId: int) -> None:
         """Add a series to sonarr from tvdbId with the given quality profile"""
 
         lookup = self.lookup_series_tvdbId(tvdbId)
@@ -161,7 +161,7 @@ class SeriesAPI:
             data=json.dumps(lookup),
         )
 
-    def put_series(self, fieldsJson: str) -> None:
+    async def put_series(self, fieldsJson: str) -> None:
         fields = json.loads(fieldsJson)
         lookup = self.get_series(fields["id"])
         for field in fields:
@@ -174,7 +174,7 @@ class SeriesAPI:
             data=json.dumps(lookup),
         )
 
-    def delete_series(self, id: int) -> None:
+    async def delete_series(self, id: int) -> None:
         requests.delete(
             self.sonarr_url + "/api/v3/series/" + str(id) + "?deleteFiles=true",
             headers=self.sonarr_headers,
