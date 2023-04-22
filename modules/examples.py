@@ -105,7 +105,7 @@ A:[CMD~memory_update~enjoyed show silly times]Great I will remember.""",
     {
         "queries": ["might want information from a web search"],
         "prompt": """U:what is the highest rated silly cinematic universe movie
-A:[CMDRET~web_search~whats the highest rated silly cinematic universe movie?]Looking up Silly Cinematic Universe
+A:[CMDRET~web_search~whats the highest rated silly cinematic universe movie and what year did it come out]Looking up Silly Cinematic Universe
 S:[RES~Captain Silly: The First Silly Hero 2021 is often considered the best movie in the universe so far, it is considered to be a step up in quality because of its more gritty and realistic approach with intense action packed CGI]
 aptain Silly: The First Silly Hero 2021 is often considered the best movie in the universe so far, it is considered to be a step up in quality because of its more gritty and realistic approach with intense action packed CGI""",
     },
@@ -156,6 +156,7 @@ A:[CMD~series_post~152347~4]Eastworld is on the way in 1080p""",
     {
         "queries": [
             "wants movies added",
+            "wants series added",
             "wants resolution queried",
             "might want information from a web search",
             "asking about a collection of media",
@@ -163,7 +164,7 @@ A:[CMD~series_post~152347~4]Eastworld is on the way in 1080p""",
         "prompt": """U:what resolution are the silly cinematic universe movies, i want them all
 A:[CMD~memory_update~wants movies in silly cinematic universe][CMDRET~movie_lookup~SCU~{title;availability;year;resolution;wantedQuality;tmdbId;id}]I'm looking this up, I have noted that you want them
 S:[RES~No results]
-A:[CMDRET~web_search~which movies are in the Silly Cinematic Universe?]My first search was unsucessful I am trying again
+A:[CMDRET~web_search~list Silly Cinematic Universe movies in release order with year]My first search was unsucessful I am trying again
 S:[RES~Here is a list of all Silly Cinematic Universe movies in order: Silly Man 2018; Silly Man 2 2020; Thunder 2021; Captain Silly: The First Silly Hero 2021; Silly Man 3 2022]
 A:[CMDRET~movie_lookup~Silly Man¬Thunder¬Captain Silly~{title;availability;year;wantedQuality;tmdbId;id}]I found 5 movies in the Silly Cinematic Universe, I am looking up their quality and availability on the server
 S: [RES~{Silly Man 1;available;2018;2160p;6655;22}{Silly Man 2;available;2020;2160p;7652;23}{Silly Man 3;available;2022;2160p;14433;45}][RES~{Thunder 1;available;2021;2160p;8775;24}][RES~{Captain Silly: The First Silly Hero;available;2021;2160p;12995;25}]

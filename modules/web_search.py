@@ -1,9 +1,10 @@
 import json
 import openai
-from modules.module_logs import ModuleLogs
-
-from duckduckgo_search import ddg
+import time
+import requests
+import asyncio
 from trafilatura import fetch_url, extract
+from modules.module_logs import ModuleLogs
 
 
 class WebAPI:
@@ -16,54 +17,77 @@ class WebAPI:
         # Create logs
         self.logs = ModuleLogs("web")
 
-    async def basic(self, query: str = "", numResults: int = 4) -> dict:
-        """Perform a DuckDuckGo Search and return the results as a JSON string"""
-        search_results = []
-        if not query:
-            return json.dumps(search_results)
+    async def basic(self, query: str = "", numResults: int = 3) -> dict:
+        """Perform a DuckDuckGo Search and return the results as a dict"""
+        try:
+            search = requests.get(
+                "https://ddg-api.herokuapp.com/search",
+                params={
+                    "query": query,
+                    "limit": numResults,
+                },
+            )
+            return search.json()
+        except requests.exceptions.RequestException as e:
+            return {}
 
-        results = ddg(query, max_results=numResults)
-        if not results:
-            return json.dumps(search_results)
+    async def fetch_site(self, url: str) -> str:
+        """Fetch a site and return a snippet of text"""
+        downloaded = fetch_url(url)
+        if downloaded:
+            # Extract text data from website
+            result = extract(downloaded)
 
-        for j in results:
-            search_results.append(j)
-
-        return search_results
+            return result.replace("\n", " ; ")
+        return ""
 
     async def advanced(self, query: str = "") -> str:
         """Perform a DuckDuckGo Search, then scrape the sites through gpt to return the answer to the prompt"""
-        search_results = await self.basic(query, 8)
+        sitesToScrape = 3
+        search = await self.basic(query, sitesToScrape)
 
-        # Go through each site until we get a good answer
-        for website in search_results:
-            # Scrape the site, fetch only the main content
-            url = website["href"]
-            downloaded = fetch_url(url)
-            if downloaded:
-                # Extract text data from website
-                result = extract(downloaded)
+        # Expand the snippets for each site for any that return the page within a few seconds
+        tasks = []
+        for index, result in enumerate(search):
+            # Asyncio task to fetch the site and replace the snippet
+            task = asyncio.create_task(self.fetch_site(result["link"]))
+            tasks.append(task)
 
-                if len(result) > 4096:
-                    result = result[:4096]
+        # Wait for all the sites to be fetched, or timeout
+        await asyncio.sleep(4)
+        bigSnippets = 0
+        for index, task in enumerate(tasks):
+            if task.done() and task.result() != "":
+                search[index]["snippet"] = task.result()
+                bigSnippets += 1
+            else:
+                task.cancel()
 
-                # Run a chat completion to get the answer to the prompt from the summarised text
-                response = openai.ChatCompletion.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": f"{result}\nAbove is the summary of the website {url}, give an answer to '{query}, if the context is insufficient, reply 'no answer'",
-                        },
-                    ],
-                    temperature=0.7,
-                )
-                # Log the response
-                self.logs.log("answer", result.replace("\n", " "), query, response)
+        blob = ""
+        # Based on sites to scrape, divide a quota of characters between them
+        for index, result in enumerate(search):
+            if len(result["snippet"]) > 500:
+                result["snippet"] = result["snippet"][: int(6000 / bigSnippets)]
+            blob += f'[{index}] {result["link"]}: {result["snippet"]}\n'
 
-                # Check if the response is valid
-                responseMessage = response["choices"][0]["message"]["content"].strip()
-                if responseMessage.lower() not in ["no answer", "no answer.", "no answer!"]:
-                    return responseMessage
+        date = time.strftime("%d/%m/%Y")
 
-        return "Could not find an answer to your question"
+        # Run a chat completion to get the answer to the prompt from results
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {
+                    "role": "user",
+                    "content": blob,
+                },
+                {
+                    "role": "user",
+                    "content": f"Current date: {date}\nYour answers should be on one line and compact\nWith the provided information, {query}",
+                },
+            ],
+            temperature=0.7,
+        )
+
+        # Log the response
+        self.logs.log("answer", json.dumps(result).replace("\n", " "), query, response)
+        return response["choices"][0]["message"]["content"].strip()
