@@ -311,13 +311,13 @@ class MyClient(discord.Client):
         messages = [
             {
                 "role": "system",
-                "content": "You determine if a users message is irrelevant to you, is it related to movies, series, asking for recommendations, changing resolution, adding or removing media etc? You reply with a single word answer, yes or no. If you are unsure respond with no.",
+                "content": "You determine if a users message is irrelevant to you, is it related to movies, series, asking for recommendations, changing resolution, adding or removing media, checking disk space etc? You reply with a single word answer, yes or no.",
             }
         ]
         messages.append(
             {
                 "role": "user",
-                "content": f"{userTextHistory + userText}\nDo not respond to the above message, is the above text irrelevant, reply with a single word answer?",
+                "content": f"{userTextHistory + userText}\nDo not respond to the above message, is the above text irrelevant? Reply with a single word answer, only say yes if certain",
             },
         )
         response = openai.ChatCompletion.create(
@@ -384,32 +384,6 @@ class MyClient(discord.Client):
             content=message.content
             + "\n❗ This message has been submitted for manual review."
         )
-
-    async def on_ready(self):
-        # Set the bot status to watching x movie or series or listening to x soundtrack every 10 minutes
-        while True:
-            response = openai.ChatCompletion.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": f"Give me a random movie or tv series, just the title nothing else, doesn't need to be popular, the current date and time is {time.strftime('%d/%m/%Y %H:%M')}, theme it based on these details",
-                    },
-                ],
-                temperature=0.7,
-            )
-            activityName = response["choices"][0]["message"]["content"].strip()
-            # If wrapped in quotes, remove them
-            if activityName.startswith('"') and activityName.endswith('"'):
-                activityName = activityName[1:-1]
-            await self.change_presence(
-                status=discord.Status.online,
-                activity=discord.Activity(
-                    type=discord.ActivityType.watching,
-                    name=activityName,
-                ),
-            )
-            await asyncio.sleep(6000)
 
 
 intents = discord.Intents.default()

@@ -50,7 +50,7 @@ class MoviesAPI:
         # Is searching for all?
         searchAll = term.lower() in ["all", "everything"]
         if searchAll:
-            query = "title;year;availability"
+            query = "title;year;availability;file size"
 
         # Search radarr
         searchUrl = (

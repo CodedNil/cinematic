@@ -56,6 +56,32 @@ A:[CMD~memory_update~loved movie animals]Thats good I will remember.""",
         "prompt": """U:the silly cinematic universe is pretty amazing
 A:[CMD~memory_update~likes the silly cinematic universe]Ive taken note.""",
     },
+    {
+        "queries": [
+            "shared an opinion",
+            "likes a movie",
+            "likes a series",
+            "has seen a movie",
+            "has seen a series",
+            "reviewed media"
+        ],
+        "prompt": """U:what is the funniest film ever 
+A:It's subjective, but many consider "Airplane!" (1980) as one of the funniest films ever made. Have you seen it, or would you like another suggestion?
+U:I have seen it, 7/10
+A:[CMD~memory_update~rated airplane 1980 7/10]If you enjoyed "Airplane!", you might also like "The Naked Gun" (1988), another comedy classic. Have you seen that one, or do you prefer a different type of humor?""",
+    },
+    {
+        "queries": [
+            "shared an opinion",
+            "likes a movie",
+            "likes a series",
+            "has seen a movie",
+            "has seen a series",
+            "reviewed media"
+        ],
+        "prompt": """U:avatar 2 was 9/10
+A:[CMD~memory_update~rated avatar 2 9/10]Ive taken note""",
+    },
     # Example - User asking about their memories
     {
         "queries": [
@@ -76,6 +102,13 @@ A:You have requested Stingate 1995 and Stingate 2007""",
 A:[CMDRET~movie_lookup~Silly~{title;availability;year;wantedQuality;tmdbId;id}]II am looking this up on the server
 S:[RES~{Silly Man 1;available;2018;2160p;6655;22}{Silly Man 2;available;2020;2160p;7652;23}{Silly Man 3;available;2022;2160p;14433;45}]
 A:All 3 Silly Man movies are present on the server with a wanted quality of 4k.""",
+    },
+    # Example - User wants their added movies researched in detail
+    {
+        "queries": ["wants disk space queried", "wants to know about their movies"],
+        "prompt": """U:how much disk space are my movies taking up
+A:[CMDRET~memory_get~what movies do they want?][CMDRET~movie_lookup~all~{title;availability;year,file size}]I am looking up your movies on the server
+S:[RES~user wants stingate 1995 & continue 2007][RES~{Stingate;available;year 1995;file size 1.2gb}{Stingate Continue;available;year 2007;file size 1.2gb}{Stingate Ark;available;year 2007;file size 1.2gb}{Stingate Angel Kids;unavailable;year 2010;file size 1.2gb}]]"""
     },
     # Example - User wants movie added, already on server but user wants it on personal requests
     {
