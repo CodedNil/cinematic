@@ -123,10 +123,6 @@ def run_command_ret(usersName: str, usersId: str, args: list) -> str:
     return returnMessage
 
 
-async def edit_message_in_background(msg, contents: str) -> None:
-    await msg.edit(content=contents)
-
-
 async def runChatCompletion(
     botsMessage,
     botsStartMessage: str,
@@ -191,10 +187,12 @@ async def runChatCompletion(
                 # Send message to user on discord
                 if userMessage != lastMessage:
                     lastMessage = userMessage
-                    # Edit the message concurrently, if it hasnt been updated in 0.5 seconds
-                    if time.time() - lastEdit > 0.5:
-                        lastEdit = time.time()
-                        await botsMessage.edit(content=botsStartMessage + "⌛ " + userMessage)
+                # Edit the message if it hasnt been updated in 0.5 seconds
+                if time.time() - lastEdit > 0.5:
+                    lastEdit = time.time()
+                    await botsMessage.edit(
+                        content=botsStartMessage + "⌛ " + userMessage.replace("\n", " ")
+                    )
             if "]" in chunk_message:
                 in_command = False
                 # Run commands
@@ -223,7 +221,9 @@ async def runChatCompletion(
     if len(userMessage) > 0:
         # Add message into the botsMessage, emoji to show the message is in progress
         isntFinal = len(commandReplies) and depth < 3
-        await botsMessage.edit(content=botsStartMessage + (isntFinal and "⌛ " or "✅ ") + userMessage)
+        await botsMessage.edit(
+            content=botsStartMessage + (isntFinal and "⌛ " or "✅ ") + userMessage.replace("\n", " ")
+        )
 
     # Do another loop with these new replies
     if len(commandReplies) > 0:
@@ -261,7 +261,7 @@ async def processChat(
     messages = [
         {
             "role": "system",
-            "content": "You determine if a users message is irrelevant to you, is it related to movies, series, asking for recommendations, changing resolution, adding or removing media, checking disk space etc? You reply with a single word answer, yes or no.",
+            "content": "You determine if a users message is irrelevant to you, is it related to movies, series, asking for recommendations, changing resolution, adding or removing media, checking disk space, viewing users memories etc? You reply with a single word answer, yes or no.",
         }
     ]
     messages.append(
@@ -271,12 +271,18 @@ async def processChat(
         },
     )
     response = openai.ChatCompletion.create(
-        model="gpt-4", messages=messages, temperature=0.7, max_tokens=2
+        model="gpt-4", messages=messages, temperature=0.7, max_tokens=2, n=3
     )
     ModuleLogs.log_ai("relevance", "check", userTextHistory + userText, "", response)
-    # If the ai responsed with yes, say I am a media bot and return
-    if response["choices"][0]["message"]["content"].lower().startswith("yes"):
-        await botsMessage.edit(content=f"{botsStartMessage}❌ Hi, I'm a media bot. I can help you with media related questions. What would you like to know or achieve?")
+    # If the ai responsed with yes in all of its choices, say I am a media bot and return
+    isValid = False
+    for choice in response["choices"]:
+        if not choice["message"]["content"].lower().startswith("yes"):
+            isValid = True
+    if not isValid:
+        await botsMessage.edit(
+            content=f"{botsStartMessage}❌ Hi, I'm a media bot. I can help you with media related questions. What would you like to know or achieve?"
+        )
         return
     # Edit the message for stage 2
     await botsMessage.edit(content=f"{botsStartMessage}⌛ 2/3 {replyMessage}")
