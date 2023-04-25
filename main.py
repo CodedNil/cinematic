@@ -4,9 +4,10 @@ import time
 import discord
 import random
 import asyncio
+import tiktoken
 
 # Modules
-from modules.module_logs import ModuleLogs
+import modules.module_logs as ModuleLogs
 from modules.memories import MemoriesAPI
 from modules.web_search import WebAPI
 from modules.series_api import SeriesAPI
@@ -17,6 +18,7 @@ from modules.examples import ExamplesAPI
 credentials = json.loads(open("credentials.json").read())
 
 openai.api_key = credentials["openai"]
+encoding = tiktoken.get_encoding("cl100k_base")
 
 Memories = MemoriesAPI(credentials["openai"])
 WebSearch = WebAPI(credentials["openai"])
@@ -36,10 +38,6 @@ radarr_headers = {
 }
 radarr_auth = (credentials["radarr"]["authuser"], credentials["radarr"]["authpass"])
 Radarr = MoviesAPI(credentials["openai"], radarr_url, radarr_headers, radarr_auth)
-
-Logs = ModuleLogs("main")
-LogsReview = ModuleLogs("review")
-LogsRelevance = ModuleLogs("relevance")
 
 Examples = ExamplesAPI(credentials["openai"])
 
@@ -74,12 +72,12 @@ async def runChatCompletion(
     tokens = 0
     # Add up tokens in chatQuery
     for msg in chatQuery:
-        tokens += len(msg["content"]) / 4 * 1.01
+        tokens += len(encoding.encode(msg["content"]))
     # Add up tokens in message, but only add until limit is reached then remove earliest messages
     wantedMessages = []
     for msg in reversed(message):
         # Add token per 4 characters, give slight extra to make sure the limit is never reached
-        tokens += len(msg["content"]) / 4 * 1.01
+        tokens += len(encoding.encode(msg["content"]))
         # Token limit reached, stop adding messages
         if tokens > 4000:
             break
@@ -92,7 +90,7 @@ async def runChatCompletion(
         model="gpt-4", messages=chatQuery + message, temperature=0.7
     )
     # Log the response
-    Logs.log("thread", json.dumps(message, indent=4), "", response)
+    ModuleLogs.log_ai("main", "thread", json.dumps(message, indent=4), "", response)
 
     responseMessage = (
         response["choices"][0]["message"]["content"].replace("\n", " ").strip()
@@ -199,6 +197,70 @@ async def runChatCompletion(
                 await Memories.update_memory(usersName, usersId, command[2])
 
 
+async def processChat(
+    botsMessage,
+    botsStartMessage: str,
+    usersName: str,
+    usersId: str,
+    messageHistory: list,
+    userText: str,
+) -> None:
+    """Process the discord message asynchronously"""
+    # Get relevant examples, combine user text with message history
+    userTextHistory = ""
+    for message in messageHistory:
+        if message["role"] == "user":
+            userTextHistory += message["content"] + "\n"
+
+    # Don't reply to non media queries
+    messages = [
+        {
+            "role": "system",
+            "content": "You determine if a users message is irrelevant to you, is it related to movies, series, asking for recommendations, changing resolution, adding or removing media, checking disk space etc? You reply with a single word answer, yes or no.",
+        }
+    ]
+    messages.append(
+        {
+            "role": "user",
+            "content": f"{userTextHistory + userText}\nDo not respond to the above message, is the above text irrelevant? Reply with a single word answer, only say yes if certain",
+        },
+    )
+    response = openai.ChatCompletion.create(
+        model="gpt-4", messages=messages, temperature=0.7, max_tokens=2
+    )
+    ModuleLogs.log_ai("relevance", "check", userTextHistory + userText, "", response)
+    # If the ai responsed with yes, say I am a media bot and return
+    if response["choices"][0]["message"]["content"].lower().startswith("yes"):
+        await botsMessage.edit(
+            content=f"{botsStartMessage}❌ Hi, I'm a media bot. I can help you with media related questions. What would you like to know or achieve?"
+        )
+        return
+
+    relevantExamples = await Examples.get_examples(userTextHistory + userText)
+    # Get current messages
+    currentMessage = []
+    currentMessage.append({"role": "user", "content": f"Hi my name is {usersName}"})
+    currentMessage.append({"role": "assistant", "content": f"Hi, how can I help you?"})
+    # Add message history
+    for message in messageHistory:
+        currentMessage.append(message)
+    # Add users message
+    currentMessage.append({"role": "user", "content": userText})
+
+    # Run chat completion async
+    asyncio.create_task(
+        runChatCompletion(
+            botsMessage,
+            botsStartMessage,
+            usersName,
+            usersId,
+            currentMessage,
+            relevantExamples,
+            0,
+        )
+    )
+
+
 class MyClient(discord.Client):
     """Discord bot client class"""
 
@@ -301,61 +363,15 @@ class MyClient(discord.Client):
             f"{botsStartMessage}⌛ {random.choice(replyMessage)}"
         )
 
-        # Get relevant examples, combine user text with message history
-        userTextHistory = ""
-        for message in messageHistory:
-            if message["role"] == "user":
-                userTextHistory += message["content"] + "\n"
-
-        # Don't reply to non media queries
-        messages = [
-            {
-                "role": "system",
-                "content": "You determine if a users message is irrelevant to you, is it related to movies, series, asking for recommendations, changing resolution, adding or removing media, checking disk space etc? You reply with a single word answer, yes or no.",
-            }
-        ]
-        messages.append(
-            {
-                "role": "user",
-                "content": f"{userTextHistory + userText}\nDo not respond to the above message, is the above text irrelevant? Reply with a single word answer, only say yes if certain",
-            },
-        )
-        response = openai.ChatCompletion.create(
-            model="gpt-4",
-            messages=messages,
-            temperature=0.7,
-        )
-        LogsRelevance.log("check", userTextHistory + userText, "", response)
-        # If the ai responsed with yes, say I am a media bot and return
-        if response["choices"][0]["message"]["content"].lower().startswith("yes"):
-            await botsMessage.edit(
-                content=f"{botsStartMessage}❌ Hi, I'm a media bot. I can help you with media related questions. What would you like to know or achieve?"
-            )
-            return
-
-        relevantExamples = await Examples.get_examples(userTextHistory + userText)
-        # Get current messages
-        currentMessage = []
-        currentMessage.append({"role": "user", "content": f"Hi my name is {usersName}"})
-        currentMessage.append(
-            {"role": "assistant", "content": f"Hi, how can I help you?"}
-        )
-        # Add message history
-        for message in messageHistory:
-            currentMessage.append(message)
-        # Add users message
-        currentMessage.append({"role": "user", "content": userText})
-
-        # Run chat completion async
+        # Process message
         asyncio.create_task(
-            runChatCompletion(
+            processChat(
                 botsMessage,
                 botsStartMessage,
                 usersName,
                 usersId,
-                currentMessage,
-                relevantExamples,
-                0,
+                messageHistory,
+                userText,
             )
         )
 
@@ -379,7 +395,7 @@ class MyClient(discord.Client):
             return
 
         # Submit message for manual review
-        LogsReview.log_simple(message.content)
+        ModuleLogs.log("review", message.content)
         await message.edit(
             content=message.content
             + "\n❗ This message has been submitted for manual review."

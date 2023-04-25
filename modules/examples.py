@@ -1,7 +1,5 @@
-import os
-import json
 import openai
-from modules.module_logs import ModuleLogs
+import modules.module_logs as ModuleLogs
 
 Examples = [
     # API - Resolution api
@@ -250,9 +248,6 @@ class ExamplesAPI:
         """Initialise with openai key"""
         openai.api_key = openai_key
 
-        # Create logs
-        self.logs = ModuleLogs("examples")
-
     async def get_examples(self, message: str) -> str:
         """Receive message from user and compare it to the examples, return relevant examples"""
 
@@ -260,7 +255,8 @@ class ExamplesAPI:
         queries = []
         for example in Examples:
             for query in example["queries"]:
-                queries.append(query)
+                if query not in queries:
+                    queries.append(query)
 
         # Search with gpt through the example prompts
         response = openai.ChatCompletion.create(
@@ -277,7 +273,7 @@ class ExamplesAPI:
         )
 
         # Log the response
-        self.logs.log("pick_examples", "", message, response)
+        ModuleLogs.log_ai("examples", "pick_examples", "", message, response)
 
         # Gather the examples which are relevant, add their prompts to the example prompt
         returnPrompts = []
@@ -285,7 +281,7 @@ class ExamplesAPI:
         if len(responseExamples) > 0:
             for example in Examples:
                 for query in example["queries"]:
-                    if query in responseExamples:
+                    if query.lower().strip() in responseExamples.lower().strip():
                         # Go through the prompt split by newline, add each line as a prompt
                         for line in example["prompt"].split("\n"):
                             if line.startswith("U:"):

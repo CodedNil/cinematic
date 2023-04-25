@@ -1,7 +1,7 @@
 import requests
 import json
 import openai
-from modules.module_logs import ModuleLogs
+import modules.module_logs as ModuleLogs
 
 # int to str for quality profiles
 qualityProfiles = {
@@ -34,9 +34,6 @@ class SeriesAPI:
         self.sonarr_url = sonarr_url
         self.sonarr_headers = sonarr_headers
         self.sonarr_auth = sonarr_auth
-
-        # Create logs
-        self.logs = ModuleLogs("series")
 
     async def lookup_series(self, term: str, query: str) -> str:
         """Lookup a series and return the information, uses ai to parse the information to required relevant to query"""
@@ -124,9 +121,7 @@ class SeriesAPI:
             temperature=0.7,
         )
         # Log the response
-        self.logs.log(
-            "query_lookup", " - ".join(results).replace("\n", " "), query, response
-        )
+        ModuleLogs.log_ai("series", "query_lookup", " - ".join(results).replace("\n", " "), query, response)
 
         return response["choices"][0]["message"]["content"]
 

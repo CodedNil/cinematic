@@ -1,7 +1,7 @@
 import os
 import json
 import openai
-from modules.module_logs import ModuleLogs
+import modules.module_logs as ModuleLogs
 
 
 class MemoriesAPI:
@@ -10,9 +10,6 @@ class MemoriesAPI:
     def __init__(self, openai_key: str) -> None:
         """Initialise with openai key"""
         openai.api_key = openai_key
-
-        # Create logs
-        self.logs = ModuleLogs("memories")
 
     async def get_memory(self, usersName: str, usersId: str, query: str) -> str:
         """Get a memory from the users memory file with ai querying"""
@@ -62,14 +59,17 @@ class MemoriesAPI:
                         "role": "assistant",
                         "content": "yes I understand those are examples and future messages are the real ones",
                     },
-                    {"role": "user", "content": f"My name is {usersName} my memories are:{userMemories}"},
+                    {
+                        "role": "user",
+                        "content": f"My name is {usersName} my memories are:{userMemories}",
+                    },
                     {"role": "user", "content": query},
                 ],
                 temperature=0.7,
             )
 
             # Log the response
-            self.logs.log("get_memory", userMemories, query, response)
+            ModuleLogs.log_ai("memories", "get_memory", userMemories, query, response)
 
             return response["choices"][0]["message"]["content"]
         else:
@@ -87,7 +87,9 @@ class MemoriesAPI:
         if usersId in memories:
             userMemories = memories[usersId]
         else:
-            userMemories = "Name: N/A | TV series wanted: N/A | Movies wanted: N/A | Opinions: N/A"
+            userMemories = (
+                "Name: N/A | TV series wanted: N/A | Movies wanted: N/A | Opinions: N/A"
+            )
 
         # Add the new memory with gpt through the users memory file
         response = openai.ChatCompletion.create(
@@ -119,14 +121,17 @@ class MemoriesAPI:
                     "role": "assistant",
                     "content": "yes I understand those are examples and future messages are the real ones",
                 },
-                {"role": "user", "content": f"My name is {usersName} my memories are:{userMemories}"},
+                {
+                    "role": "user",
+                    "content": f"My name is {usersName} my memories are:{userMemories}",
+                },
                 {"role": "user", "content": f"Add '{query}'"},
             ],
             temperature=0.7,
         )
 
         # Log the response
-        self.logs.log("update_memory", userMemories, query, response)
+        ModuleLogs.log_ai("memories", "update_memory", userMemories, query, response)
 
         # Update the users memories
         memories[usersId] = response["choices"][0]["message"]["content"]
