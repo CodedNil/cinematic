@@ -248,7 +248,7 @@ class ExamplesAPI:
         """Initialise with openai key"""
         openai.api_key = openai_key
 
-    async def get_examples(self, message: str) -> str:
+    def get_examples(self, message: str) -> str:
         """Receive message from user and compare it to the examples, return relevant examples"""
 
         # Get all the example queries
@@ -277,11 +277,11 @@ class ExamplesAPI:
 
         # Gather the examples which are relevant, add their prompts to the example prompt
         returnPrompts = []
-        responseExamples = response["choices"][0]["message"]["content"].split(";")
+        responseExamples = [item.strip() for item in response["choices"][0]["message"]["content"].split(";")]
         if len(responseExamples) > 0:
             for example in Examples:
                 for query in example["queries"]:
-                    if query.lower().strip() in responseExamples.lower().strip():
+                    if query.lower().strip() in responseExamples:
                         # Go through the prompt split by newline, add each line as a prompt
                         for line in example["prompt"].split("\n"):
                             if line.startswith("U:"):

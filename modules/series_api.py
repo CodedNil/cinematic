@@ -35,7 +35,7 @@ class SeriesAPI:
         self.sonarr_headers = sonarr_headers
         self.sonarr_auth = sonarr_auth
 
-    async def lookup_series(self, term: str, query: str) -> str:
+    def lookup_series(self, term: str, query: str) -> str:
         """Lookup a series and return the information, uses ai to parse the information to required relevant to query"""
 
         # Add basics to query if not already there
@@ -125,7 +125,7 @@ class SeriesAPI:
 
         return response["choices"][0]["message"]["content"]
 
-    async def lookup_series_tvdbId(self, tvdbId: int) -> dict:
+    def lookup_series_tvdbId(self, tvdbId: int) -> dict:
         """Lookup a series by tvdbId and return the information"""
 
         # Search sonarr
@@ -139,7 +139,7 @@ class SeriesAPI:
 
         return response.json()[0]
 
-    async def get_series(self, id: int) -> dict:
+    def get_series(self, id: int) -> dict:
         response = requests.get(
             self.sonarr_url + "/api/v3/series/" + str(id),
             headers=self.sonarr_headers,
@@ -151,10 +151,10 @@ class SeriesAPI:
 
         return response.json()
 
-    async def add_series(self, tvdbId: int, qualityProfileId: int) -> None:
+    def add_series(self, tvdbId: int, qualityProfileId: int) -> None:
         """Add a series to sonarr from tvdbId with the given quality profile"""
 
-        lookup = await self.lookup_series_tvdbId(tvdbId)
+        lookup = self.lookup_series_tvdbId(tvdbId)
         lookup["qualityProfileId"] = qualityProfileId
         lookup["addOptions"] = {"searchForMissingEpisodes": True}
         lookup["rootFolderPath"] = "/tv"
@@ -170,9 +170,9 @@ class SeriesAPI:
             data=json.dumps(lookup),
         )
 
-    async def put_series(self, fieldsJson: str) -> None:
+    def put_series(self, fieldsJson: str) -> None:
         fields = json.loads(fieldsJson)
-        lookup = await self.get_series(fields["id"])
+        lookup = self.get_series(fields["id"])
         for field in fields:
             lookup[field] = fields[field]
 
@@ -183,7 +183,7 @@ class SeriesAPI:
             data=json.dumps(lookup),
         )
 
-    async def delete_series(self, id: int) -> None:
+    def delete_series(self, id: int) -> None:
         requests.delete(
             self.sonarr_url + "/api/v3/series/" + str(id) + "?deleteFiles=true",
             headers=self.sonarr_headers,

@@ -35,7 +35,7 @@ class MoviesAPI:
         self.radarr_headers = radarr_headers
         self.radarr_auth = radarr_auth
 
-    async def lookup_movie(self, term: str, query: str) -> str:
+    def lookup_movie(self, term: str, query: str) -> str:
         """Lookup a movie and return the information, uses ai to parse the information to required relevant to query"""
 
         # Add basics to query if not already there
@@ -176,7 +176,7 @@ class MoviesAPI:
 
         return response["choices"][0]["message"]["content"]
 
-    async def lookup_movie_tmdbId(self, tmdbId: int) -> dict:
+    def lookup_movie_tmdbId(self, tmdbId: int) -> dict:
         """Lookup a movie by tmdbId and return the information"""
 
         # Search radarr
@@ -190,7 +190,7 @@ class MoviesAPI:
 
         return response.json()
 
-    async def get_movie(self, id: int) -> dict:
+    def get_movie(self, id: int) -> dict:
         """Get a movie by id and return the information"""
 
         # Search radarr
@@ -205,10 +205,10 @@ class MoviesAPI:
 
         return response.json()
 
-    async def add_movie(self, tmdbId: int, qualityProfileId: int) -> None:
+    def add_movie(self, tmdbId: int, qualityProfileId: int) -> None:
         """Add a movie to radarr from tmdbId with the given quality profile"""
 
-        lookup = await self.lookup_movie_tmdbId(tmdbId)
+        lookup = self.lookup_movie_tmdbId(tmdbId)
         lookup["qualityProfileId"] = qualityProfileId
         lookup["addOptions"] = {
             "searchForMovie": True,
@@ -225,11 +225,11 @@ class MoviesAPI:
             data=json.dumps(lookup),
         )
 
-    async def put_movie(self, fieldsJson: str) -> None:
+    def put_movie(self, fieldsJson: str) -> None:
         """Update a movie in radarr with the given fields data"""
 
         fields = json.loads(fieldsJson)
-        lookup = await self.get_movie(fields["id"])
+        lookup = self.get_movie(fields["id"])
         for field in fields:
             lookup[field] = fields[field]
 
@@ -241,7 +241,7 @@ class MoviesAPI:
             data=json.dumps(lookup),
         )
 
-    async def delete_movie(self, id: int) -> None:
+    def delete_movie(self, id: int) -> None:
         """Delete a movie from radarr"""
         requests.delete(
             self.radarr_url + "/api/v3/movie/" + str(id) + "?deleteFiles=true",

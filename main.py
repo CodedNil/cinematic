@@ -5,6 +5,8 @@ import discord
 import random
 import asyncio
 import tiktoken
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 # Modules
 import modules.module_logs as ModuleLogs
@@ -54,6 +56,76 @@ initMessages = [
     },
 ]
 
+replyMessages = [
+    "Hey there! Super excited to process your message, give me just a moment... 🎬",
+    "Oh, a message! Can't wait to dive into this one - I'm on it... 🎥",
+    "Hey, awesome! A new message to explore! Let me work my media magic... 📺",
+    "Woo-hoo! A fresh message to check out! Let me put my CineMatic touch on it... 🍿",
+    "Yay, another message! Time to unleash my media passion, be right back... 📼",
+    "Hey, a message! I'm so excited to process this one, just a moment... 🎞",
+    "Aha! A message has arrived! Let me roll out the red carpet for it... 🎞️",
+    "Ooh, a new message to dissect! Allow me to unleash my inner film buff... 🎦",
+    "Lights, camera, action! Time to process your message with a cinematic twist... 📽️",
+    "Hooray, a message to dig into! Let's make this a blockbuster experience... 🌟",
+    "Greetings! Your message has caught my eye, let me give it the star treatment... 🎟️",
+    "Popcorn's ready! Let me take a closer look at your message like a true film fanatic... 🍿",
+    "Woohoo! A message to analyze! Let me work on it while humming my favorite movie tunes... 🎶",
+    "A new message to dive into! Let me put on my director's hat and get to work... 🎩",
+    "And... action! Time to process your message with my media expertise... 📹",
+    "Hold on to your seats! I'm about to process your message with the excitement of a movie premiere... 🌆",
+    "Sending your message to the cutting room! Let me work on it like a skilled film editor... 🎞️",
+    "A message has entered the scene! Let me put my media prowess to work on it... 🎭",
+    "Your message is the star of the show! Let me process it with the passion of a true cinephile... 🌟",
+    "In the spotlight! Let me process your message with the enthusiasm of a film festival enthusiast... 🎪",
+    "Curtain up! Your message takes center stage, and I'm ready to give it a standing ovation... 🎦",
+]
+
+
+def run_command(usersName: str, usersId: str, args: list) -> None:
+    """Run a command"""
+    if args[1] == "movie_post":
+        Radarr.add_movie(args[2], args[3])
+    # elif args[1] == 'movie_delete':
+    #     Radarr.delete_movie(args[2])
+    elif args[1] == "movie_put":
+        Radarr.put_movie(args[2])
+    elif args[1] == "series_post":
+        Sonarr.add_series(args[2], args[3])
+    # elif args[1] == 'series_delete':
+    #     Sonarr.delete_series(args[2])
+    elif args[1] == "series_put":
+        Sonarr.put_series(args[2])
+    elif args[1] == "memory_update":
+        Memories.update_memory(usersName, usersId, args[2])
+
+
+def run_command_ret(usersName: str, usersId: str, args: list) -> str:
+    """Run a command with a return"""
+    returnMessage = ""
+    if args[1] == "web_search":
+        returnMessage = "[RES~" + WebSearch.advanced(args[2]) + "]"
+    elif args[1] == "movie_lookup":
+        # If multiple terms, split and search for each
+        if len(args[2].split("¬")) > 1:
+            for term in args[2].split("¬"):
+                returnMessage = "[RES~" + Radarr.lookup_movie(term, args[3]) + "]"
+        else:
+            returnMessage = "[RES~" + Radarr.lookup_movie(args[2], args[3]) + "]"
+    elif args[1] == "series_lookup":
+        # If multiple terms, split and search for each
+        if len(args[2].split("¬")) > 1:
+            for term in args[2].split("¬"):
+                returnMessage = "[RES~" + Sonarr.lookup_series(term, args[3]) + "]"
+        else:
+            returnMessage = "[RES~" + Sonarr.lookup_series(args[2], args[3]) + "]"
+    elif args[1] == "memory_get":
+        returnMessage = "[RES~" + Memories.get_memory(usersName, usersId, args[2]) + "]"
+    return returnMessage
+
+
+async def edit_message_in_background(msg, contents: str) -> None:
+    await msg.edit(content=contents)
+
 
 async def runChatCompletion(
     botsMessage,
@@ -85,88 +157,78 @@ async def runChatCompletion(
         wantedMessages.insert(0, msg)
     message = wantedMessages
 
-    # Run a chat completion
+    # Run a chat completion and stream it in
     response = openai.ChatCompletion.create(
-        model="gpt-4", messages=chatQuery + message, temperature=0.7
+        model="gpt-4",
+        messages=chatQuery + message,
+        temperature=0.7,
+        stream=True,
     )
-    # Log the response
-    ModuleLogs.log_ai("main", "thread", json.dumps(message, indent=4), "", response)
+    # Collect message to user and commands
+    fullMessage = ""
+    lastMessage = ""
+    userMessage = ""
+    commandMessage = ""
+    commandTasks = []
+    # Last edit of the discord message
+    lastEdit = time.time()
+    # Is the output currently within a command?
+    in_command = False
+    # Iterate through the stream of events
+    with ThreadPoolExecutor() as executor:
+        for chunk in response:
+            # Collect the chunk of text
+            chunk_message = chunk["choices"][0]["delta"].get("content", "")
+            # Collect non command text
+            if "[" in chunk_message:
+                in_command = True
+                userMessage += chunk_message.split("[")[0]
+                commandMessage = ""
+            if in_command:
+                commandMessage += chunk_message
+            else:
+                userMessage += chunk_message
+                # Send message to user on discord
+                if userMessage != lastMessage:
+                    lastMessage = userMessage
+                    # Edit the message concurrently, if it hasnt been updated in 0.5 seconds
+                    if time.time() - lastEdit > 0.5:
+                        lastEdit = time.time()
+                        await botsMessage.edit(content=botsStartMessage + "⌛ " + userMessage)
+            if "]" in chunk_message:
+                in_command = False
+                # Run commands
+                commandArgs = commandMessage.strip()[1:-1].split("~")
+                if commandArgs[0] == "CMDRET":
+                    # Create a thread to run the command and append it to the list of tasks
+                    commandTasks.append(
+                        executor.submit(
+                            run_command_ret, usersName, usersId, commandArgs
+                        )
+                    )
+                elif commandArgs[0] == "CMD":
+                    # Create a thread to run the command
+                    executor.submit(run_command, usersName, usersId, commandArgs)
+            # Collect the full message
+            fullMessage += chunk_message
 
-    responseMessage = (
-        response["choices"][0]["message"]["content"].replace("\n", " ").strip()
-    )
-    responseToUser = responseMessage[:]
+    # Wait for all threads to finish
+    commandReplies = []
+    for task in commandTasks:
+        commandReplies.append(task.result())
+    # TODO: Log the response
+    # ModuleLogs.log_ai("main", "thread", json.dumps(message, indent=4), "", response)
 
-    # Extract commands from the response, commands are within [], everything outside of [] is a response to the user
-    commands = []
-    hasCmdRet = False
-    hasCmd = False
-    while "[" in responseToUser:
-        commands.append(
-            responseToUser[responseToUser.find("[") + 1 : responseToUser.find("]")]
-        )
-        if "CMDRET" in commands[-1]:
-            hasCmdRet = True
-        elif "CMD" in commands[-1]:
-            hasCmd = True
-        responseToUser = (
-            responseToUser.replace("[" + commands[-1] + "]", "")
-            .replace("  ", " ")
-            .strip()
-        )
-
-    message.append({"role": "assistant", "content": responseMessage})
-
-    # Respond to user
-    if len(responseToUser) > 0:
+    # Respond to user with full message
+    if len(userMessage) > 0:
         # Add message into the botsMessage, emoji to show the message is in progress
-        isntFinal = hasCmdRet and depth < 3
-        await botsMessage.edit(
-            content=botsStartMessage + (isntFinal and "⌛ " or "✅ ") + responseToUser
-        )
+        isntFinal = len(commandReplies) and depth < 3
+        await botsMessage.edit(content=botsStartMessage + (isntFinal and "⌛ " or "✅ ") + userMessage)
 
-    # Execute commands and return responses
-    if hasCmdRet:
-        returnMessage = ""
-        for command in commands:
-            command = command.split("~")
-            if command[1] == "web_search":
-                returnMessage += "[RES~" + await WebSearch.advanced(command[2]) + "]"
-            elif command[1] == "movie_lookup":
-                # If multiple terms, split and search for each
-                if len(command[2].split("¬")) > 1:
-                    for term in command[2].split("¬"):
-                        returnMessage += (
-                            "[RES~" + await Radarr.lookup_movie(term, command[3]) + "]"
-                        )
-                else:
-                    returnMessage += (
-                        "[RES~"
-                        + await Radarr.lookup_movie(command[2], command[3])
-                        + "]"
-                    )
-            elif command[1] == "series_lookup":
-                # If multiple terms, split and search for each
-                if len(command[2].split("¬")) > 1:
-                    for term in command[2].split("¬"):
-                        returnMessage += (
-                            "[RES~" + await Sonarr.lookup_series(term, command[3]) + "]"
-                        )
-                else:
-                    returnMessage += (
-                        "[RES~"
-                        + await Sonarr.lookup_series(command[2], command[3])
-                        + "]"
-                    )
-            elif command[1] == "memory_get":
-                returnMessage += (
-                    "[RES~"
-                    + await Memories.get_memory(usersName, usersId, command[2])
-                    + "]"
-                )
-
-        message.append({"role": "system", "content": returnMessage})
-
+    # Do another loop with these new replies
+    if len(commandReplies) > 0:
+        message.append({"role": "assistant", "content": fullMessage})
+        message.append({"role": "system", "content": "".join(commandReplies)})
         if depth < 3:
             await runChatCompletion(
                 botsMessage,
@@ -177,29 +239,12 @@ async def runChatCompletion(
                 relevantExamples,
                 depth + 1,
             )
-    # Execute regular commands
-    elif hasCmd:
-        for command in commands:
-            command = command.split("~")
-            if command[1] == "movie_post":
-                await Radarr.add_movie(command[2], command[3])
-            # elif command[1] == 'movie_delete':
-            #     await Radarr.delete_movie(command[2])
-            elif command[1] == "movie_put":
-                await Radarr.put_movie(command[2])
-            elif command[1] == "series_post":
-                await Sonarr.add_series(command[2], command[3])
-            # elif command[1] == 'series_delete':
-            #     await Sonarr.delete_series(command[2])
-            elif command[1] == "series_put":
-                await Sonarr.put_series(command[2])
-            elif command[1] == "memory_update":
-                await Memories.update_memory(usersName, usersId, command[2])
 
 
 async def processChat(
     botsMessage,
     botsStartMessage: str,
+    replyMessage: str,
     usersName: str,
     usersId: str,
     messageHistory: list,
@@ -231,12 +276,15 @@ async def processChat(
     ModuleLogs.log_ai("relevance", "check", userTextHistory + userText, "", response)
     # If the ai responsed with yes, say I am a media bot and return
     if response["choices"][0]["message"]["content"].lower().startswith("yes"):
-        await botsMessage.edit(
-            content=f"{botsStartMessage}❌ Hi, I'm a media bot. I can help you with media related questions. What would you like to know or achieve?"
-        )
+        await botsMessage.edit(content=f"{botsStartMessage}❌ Hi, I'm a media bot. I can help you with media related questions. What would you like to know or achieve?")
         return
+    # Edit the message for stage 2
+    await botsMessage.edit(content=f"{botsStartMessage}⌛ 2/3 {replyMessage}")
 
-    relevantExamples = await Examples.get_examples(userTextHistory + userText)
+    relevantExamples = Examples.get_examples(userTextHistory + userText)
+    # Edit the message for stage 3
+    await botsMessage.edit(content=f"{botsStartMessage}⌛ 3/3 {replyMessage}")
+
     # Get current messages
     currentMessage = []
     currentMessage.append({"role": "user", "content": f"Hi my name is {usersName}"})
@@ -247,17 +295,15 @@ async def processChat(
     # Add users message
     currentMessage.append({"role": "user", "content": userText})
 
-    # Run chat completion async
-    asyncio.create_task(
-        runChatCompletion(
-            botsMessage,
-            botsStartMessage,
-            usersName,
-            usersId,
-            currentMessage,
-            relevantExamples,
-            0,
-        )
+    # Run chat completion
+    await runChatCompletion(
+        botsMessage,
+        botsStartMessage,
+        usersName,
+        usersId,
+        currentMessage,
+        relevantExamples,
+        0,
     )
 
 
@@ -322,6 +368,10 @@ class MyClient(discord.Client):
         usersId = str(message.author.id)
         usersName = message.author.name
         print("Message from " + usersName + " (" + usersId + "): " + message.content)
+        ModuleLogs.log(
+            "messages",
+            "Message from " + usersName + " (" + usersId + "): " + message.content,
+        )
         # Get message content, removing mentions and newlines
         userText = (
             message.content.replace("\n", " ")
@@ -330,44 +380,21 @@ class MyClient(discord.Client):
         )
 
         # Reply to message
-        replyMessage = [
-            "Hey there! Super excited to process your message, give me just a moment... 🎬",
-            "Oh, a message! Can't wait to dive into this one - I'm on it... 🎥",
-            "Hey, awesome! A new message to explore! Let me work my media magic... 📺",
-            "Woo-hoo! A fresh message to check out! Let me put my CineMatic touch on it... 🍿",
-            "Yay, another message! Time to unleash my media passion, be right back... 📼",
-            "Hey, a message! I'm so excited to process this one, just a moment... 🎞",
-            "Aha! A message has arrived! Let me roll out the red carpet for it... 🎞️",
-            "Ooh, a new message to dissect! Allow me to unleash my inner film buff... 🎦",
-            "Lights, camera, action! Time to process your message with a cinematic twist... 📽️",
-            "Hooray, a message to dig into! Let's make this a blockbuster experience... 🌟",
-            "Greetings! Your message has caught my eye, let me give it the star treatment... 🎟️",
-            "Popcorn's ready! Let me take a closer look at your message like a true film fanatic... 🍿",
-            "Woohoo! A message to analyze! Let me work on it while humming my favorite movie tunes... 🎶",
-            "A new message to dive into! Let me put on my director's hat and get to work... 🎩",
-            "And... action! Time to process your message with my media expertise... 📹",
-            "Hold on to your seats! I'm about to process your message with the excitement of a movie premiere... 🌆",
-            "Sending your message to the cutting room! Let me work on it like a skilled film editor... 🎞️",
-            "A message has entered the scene! Let me put my media prowess to work on it... 🎭",
-            "Your message is the star of the show! Let me process it with the passion of a true cinephile... 🌟",
-            "In the spotlight! Let me process your message with the enthusiasm of a film festival enthusiast... 🎪",
-            "Curtain up! Your message takes center stage, and I'm ready to give it a standing ovation... 🎦",
-        ]
         if message == None:
             return
         botsStartMessage = ""
         for msg in messageHistory:
             botsStartMessage += msg["content"] + "\n"
         botsStartMessage += f"💬 {userText}\n"
-        botsMessage = await message.reply(
-            f"{botsStartMessage}⌛ {random.choice(replyMessage)}"
-        )
+        replyMessage = random.choice(replyMessages)
+        botsMessage = await message.reply(f"{botsStartMessage}⌛ 1/3 {replyMessage}")
 
-        # Process message
+        # Process message in a thread
         asyncio.create_task(
             processChat(
                 botsMessage,
                 botsStartMessage,
+                replyMessage,
                 usersName,
                 usersId,
                 messageHistory,

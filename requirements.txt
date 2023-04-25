@@ -2,3 +2,4 @@ openai
 requests
 trafilatura
 discord
+tiktoken

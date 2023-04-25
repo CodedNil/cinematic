@@ -11,7 +11,7 @@ class MemoriesAPI:
         """Initialise with openai key"""
         openai.api_key = openai_key
 
-    async def get_memory(self, usersName: str, usersId: str, query: str) -> str:
+    def get_memory(self, usersName: str, usersId: str, query: str) -> str:
         """Get a memory from the users memory file with ai querying"""
 
         # Get users memories
@@ -75,7 +75,7 @@ class MemoriesAPI:
         else:
             return "no memories"
 
-    async def update_memory(self, usersName: str, usersId: str, query: str) -> None:
+    def update_memory(self, usersName: str, usersId: str, query: str) -> None:
         """Update a memory in the users memory file with ai"""
 
         # Get users memories

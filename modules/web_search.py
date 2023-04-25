@@ -2,9 +2,9 @@ import json
 import openai
 import time
 import requests
-import asyncio
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from trafilatura import fetch_url, extract
-from modules.module_logs import ModuleLogs
+import modules.module_logs as ModuleLogs
 
 
 class WebAPI:
@@ -14,10 +14,7 @@ class WebAPI:
         """Initialise with credentials"""
         openai.api_key = openai_key
 
-        # Create logs
-        self.logs = ModuleLogs("web")
-
-    async def basic(self, query: str = "", numResults: int = 3) -> dict:
+    def basic(self, query: str = "", numResults: int = 3) -> dict:
         """Perform a DuckDuckGo Search and return the results as a dict"""
         try:
             search = requests.get(
@@ -31,7 +28,7 @@ class WebAPI:
         except requests.exceptions.RequestException as e:
             return {}
 
-    async def fetch_site(self, url: str) -> str:
+    def fetch_site(self, url: str) -> str:
         """Fetch a site and return a snippet of text"""
         downloaded = fetch_url(url)
         if downloaded:
@@ -41,36 +38,35 @@ class WebAPI:
             return result.replace("\n", " ; ")
         return ""
 
-    async def advanced(self, query: str = "") -> str:
+    def advanced(self, query: str = "") -> str:
         """Perform a DuckDuckGo Search, then scrape the sites through gpt to return the answer to the prompt"""
         sitesToScrape = 3
-        search = await self.basic(query, sitesToScrape)
+        search_results = self.basic(query, sitesToScrape)
 
         # Expand the snippets for each site for any that return the page within a few seconds
         tasks = []
-        for index, result in enumerate(search):
-            # Asyncio task to fetch the site and replace the snippet
-            task = asyncio.create_task(self.fetch_site(result["link"]))
-            tasks.append(task)
+        # Create a thread to fetch the site for each search result
+        with ThreadPoolExecutor() as executor:
+            for result in search_results:
+                task = executor.submit(self.fetch_site, result["link"])
+                tasks.append(task)
 
-        # Wait for all the sites to be fetched, or timeout
-        await asyncio.sleep(4)
+        # Wait for all the threads to complete or timeout
         bigSnippets = 0
-        for index, task in enumerate(tasks):
-            if task.done() and task.result() != "":
-                search[index]["snippet"] = task.result()
+        for future in as_completed(tasks, timeout=4):
+            index = tasks.index(future)
+            if future.done() and future.result() != "":
+                search_results[index]["snippet"] = future.result()
                 bigSnippets += 1
             else:
-                task.cancel()
+                future.cancel()
 
         blob = ""
         # Based on sites to scrape, divide a quota of characters between them
-        for index, result in enumerate(search):
+        for index, result in enumerate(search_results):
             if len(result["snippet"]) > 500:
                 result["snippet"] = result["snippet"][: int(6000 / bigSnippets)]
             blob += f'[{index}] {result["link"]}: {result["snippet"]}\n'
-
-        date = time.strftime("%d/%m/%Y")
 
         # Run a chat completion to get the answer to the prompt from results
         response = openai.ChatCompletion.create(
@@ -82,12 +78,18 @@ class WebAPI:
                 },
                 {
                     "role": "user",
-                    "content": f"Current date: {date}\nYour answers should be on one line and compact\nWith the provided information, {query}",
+                    "content": f"Your answers should be on one line and compact lists have comma separations\Based on the given information, {query}",
                 },
             ],
             temperature=0.7,
         )
 
         # Log the response
-        self.logs.log("answer", json.dumps(result).replace("\n", " ")[:200], query, response)
+        ModuleLogs.log_ai(
+            "web",
+            "answer",
+            json.dumps(result).replace("\n", " ")[:200],
+            query,
+            response,
+        )
         return response["choices"][0]["message"]["content"].strip()
