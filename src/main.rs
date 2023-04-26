@@ -3,11 +3,17 @@ use std::env;
 use serenity::{
     async_trait,
     model::{channel::Message as DiscordMessage, gateway::Ready},
-    prelude::*,
+    prelude::{
+        Client as DiscordClient, Context as DiscordContext, EventHandler, GatewayIntents,
+        TypeMapKey,
+    },
 };
 
 use async_openai::{
-    types::{CreateChatCompletionResponse, ChatCompletionRequestMessageArgs, CreateChatCompletionRequestArgs, Role},
+    types::{
+        ChatCompletionRequestMessage, ChatCompletionRequestMessageArgs,
+        CreateChatCompletionRequestArgs, CreateChatCompletionResponse, Role,
+    },
     Client as OpenAiClient,
 };
 
@@ -23,19 +29,34 @@ struct Handler;
 
 async fn process_chat(
     openai_client: &OpenAiClient,
-    user_name: String,           // The users name
-    user_id: String,             // The users id
-    user_text: String,           // Users text to bot
-    ctx: Context,                // The discord context
-    mut bot_message: DiscordMessage, // The reply to the user
-    bot_message_history: String, // The message history
-    reply_text: String,          // The text used in the reply while processing
+    user_name: String,                                  // The users name
+    user_id: String,                                    // The users id
+    user_text: String,                                  // Users text to bot
+    ctx: DiscordContext,                                // The discord context
+    mut bot_message: DiscordMessage,                    // The reply to the user
+    message_history: Vec<ChatCompletionRequestMessage>, // The message history
+    message_history_text: String,                       // The message history text
+    reply_text: String, // The text used in the reply while processing
 ) {
-    // TODO Don't reply to non media queries, compare user_text with the ai model
-    // TODO add user_message_history before the user_text else it is only searching against the newest message
+    // Don't reply to non media queries, compare user_text with the ai model
+    let mut user_text_total = String::new();
+    // Get messages from user, add their text plus a new line
+    for message in message_history {
+        if message.role == Role::User {
+            user_text_total.push_str(&format!("{}\n", &message.content));
+        }
+    }
+    // Add the users message
+    user_text_total.push_str(&user_text);
+    // Remove new lines and replace with a comma, remove the 💬 emoji, trim and convert to string
+    user_text_total = user_text_total
+        .replace("\n", ", ")
+        .replace("💬", "")
+        .trim()
+        .to_string();
     let request = CreateChatCompletionRequestArgs::default()
         .max_tokens(4u16)
-        .model("gpt-4")
+        .model("gpt-3.5-turbo")
         .n(3u8)
         .messages([
             ChatCompletionRequestMessageArgs::default()
@@ -44,7 +65,7 @@ async fn process_chat(
                 .build().unwrap(),
             ChatCompletionRequestMessageArgs::default()
                 .role(Role::User)
-                .content(format!("{user_text}\nDo not respond to the above message, is the above text irrelevant? Reply with a single word answer, only say yes if certain"))
+                .content(format!("{user_text_total}\nDo not respond to the above message, is the above text irrelevant? Reply with a single word answer, only say yes if certain"))
                 .build().unwrap(),
         ])
         .build().unwrap();
@@ -81,28 +102,74 @@ async fn process_chat(
     if !is_valid {
         // Edit the message to let the user know the message is not valid
         bot_message
-            .edit(&ctx.http, |msg| {
-                msg.content(format!("{bot_message_history}❌ Hi, I'm a media bot. I can help you with media related questions. What would you like to know or achieve?"))
+            .edit(&ctx.http, |msg: &mut serenity::builder::EditMessage| {
+                msg.content(format!("{message_history_text}❌ Hi, I'm a media bot. I can help you with media related questions. What would you like to know or achieve?"))
             })
             .await
             .unwrap();
         return;
     }
+
+    // Edit the bot_message to let the user know the message is valid and it is progressing
+    bot_message
+        .edit(&ctx.http, |msg| {
+            msg.content(format!("{message_history_text}⌛ 2/3 {reply_text}"))
+        })
+        .await
+        .unwrap();
+
+    // TODO Get relevant examples
+    // relevantExamples = Examples.get_examples(userTextHistory + userText)
+
+    // Edit the bot_message to let the user know it is progressing
+    bot_message
+        .edit(&ctx.http, |msg| {
+            msg.content(format!("{message_history_text}⌛ 3/3 {reply_text}"))
+        })
+        .await
+        .unwrap();
+
+    // # Get current messages
+    // currentMessage = []
+    // currentMessage.append({"role": "user", "content": f"Hi my name is {usersName}"})
+    // currentMessage.append({"role": "assistant", "content": f"Hi, how can I help you?"})
+    // # Add message history
+    // for message in messageHistory:
+    //     currentMessage.append(message)
+    // # Add users message
+    // currentMessage.append({"role": "user", "content": userText})
+
+    // # Run chat completion
+    // await runChatCompletion(
+    //     botsMessage,
+    //     botsStartMessage,
+    //     usersName,
+    //     usersId,
+    //     currentMessage,
+    //     relevantExamples,
+    //     0,
+    // )
 }
 
 #[async_trait]
 impl EventHandler for Handler {
     // When the bot is ready
-    async fn ready(&self, _: Context, ready: Ready) {
+    async fn ready(&self, _: DiscordContext, ready: Ready) {
         println!("{} is connected!", ready.user.name);
     }
 
     // When message is received
-    async fn message(&self, ctx: Context, msg: DiscordMessage) {
-        // Don't reply to bots
+    async fn message(&self, ctx: DiscordContext, msg: DiscordMessage) {
+        // Don't reply to bots or self
         if msg.author.bot {
             return;
         }
+        // Get the bots user
+        let bot_user = ctx
+            .http
+            .get_current_user()
+            .await
+            .expect("Failed to get bot user");
 
         // If in production, don't reply to messages that don't mention the bot
         // In debug, don't reply to messages that don't start with "!"
@@ -124,8 +191,67 @@ impl EventHandler for Handler {
             }
         }
 
-        // TODO If message is a reply to the bot, create a message history
-        // let message_history: Vec<HashMap<&str, String>> = Vec::new();
+        // If message is a reply to the bot, create a message history
+        let mut message_history: Vec<ChatCompletionRequestMessage> = Vec::new();
+        let mut valid_reply = false;
+        if let Some(message_reference) = &msg.message_reference {
+            // Get the message replied to
+            let replied_to = match msg
+                .channel_id
+                .message(&ctx.http, message_reference.message_id.unwrap())
+                .await
+            {
+                Ok(replied_to) => replied_to,
+                Err(error) => {
+                    println!("Error getting replied to message: {:?}", error);
+                    return;
+                }
+            };
+            if replied_to.author.id == bot_user.id {
+                // See if the message is completed
+                if !replied_to.content.contains("✅") {
+                    return;
+                }
+                valid_reply = true;
+                // Split message by lines
+                let content = replied_to.content.split("\n");
+                for msg in content {
+                    // If the line is a reply to the bot, add it to the message history
+                    if msg.starts_with("✅") {
+                        message_history.push(
+                            ChatCompletionRequestMessageArgs::default()
+                                .role(Role::Assistant)
+                                .content(msg.replace("✅ ", "☑️ ").trim())
+                                .build()
+                                .unwrap(),
+                        );
+                    } else if msg.starts_with("☑️") {
+                        message_history.push(
+                            ChatCompletionRequestMessageArgs::default()
+                                .role(Role::Assistant)
+                                .content(msg.trim())
+                                .build()
+                                .unwrap(),
+                        );
+                    // If the line is a reply to the user, add it to the message history
+                    } else if msg.starts_with("💬") {
+                        message_history.push(
+                            ChatCompletionRequestMessageArgs::default()
+                                .role(Role::User)
+                                .content(msg.trim())
+                                .build()
+                                .unwrap(),
+                        );
+                    }
+                }
+            }
+        } else {
+            valid_reply = true;
+        }
+        // If reply was not valid end
+        if !valid_reply {
+            return;
+        }
 
         // Collect users id and name
         let user_id = msg.author.id.to_string();
@@ -145,12 +271,12 @@ impl EventHandler for Handler {
             return;
         }
 
-        let mut bot_message_history = String::new();
-        // for msg in message_history {
-        //     bot_start_message.push_str(&format!("{}\n", msg["content"]));
-        // }
+        let mut message_history_text = String::new();
+        for msg in &message_history {
+            message_history_text.push_str(&format!("{}\n", msg.content));
+        }
         // Add the users message to the message history
-        bot_message_history.push_str(&format!("💬 {}\n", user_text));
+        message_history_text.push_str(&format!("💬 {user_text}\n"));
 
         let reply_messages = vec![
             "Hey there! Super excited to process your message, give me just a moment... 🎬",
@@ -182,7 +308,7 @@ impl EventHandler for Handler {
         let bot_message = msg
             .reply(
                 &ctx.http,
-                format!("{}⌛ 1/3 {}", bot_message_history, reply_text),
+                format!("{message_history_text}⌛ 1/3 {reply_text}"),
             )
             .await
             .expect("Failed to send message");
@@ -201,7 +327,8 @@ impl EventHandler for Handler {
                 user_text,
                 ctx_clone,
                 bot_message,
-                bot_message_history,
+                message_history,
+                message_history_text,
                 reply_text,
             )
             .await;
@@ -225,7 +352,7 @@ async fn main() {
         | GatewayIntents::MESSAGE_CONTENT;
 
     // Create a new instance of the Client, logging in as a bot
-    let mut client: Client = Client::builder(&discord_token, intents)
+    let mut client: DiscordClient = DiscordClient::builder(&discord_token, intents)
         .event_handler(Handler)
         .type_map_insert::<OpenAiApi>(openai_client)
         .await

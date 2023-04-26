@@ -333,6 +333,10 @@ class MyClient(discord.Client):
         if not mentionsBot:
             return
 
+        # If message starts with ! then it is a debug message, ignore it
+        if message.content.startswith("!"):
+            return
+
         # Check if message is a reply to the bot, if it is, create a message history
         messageHistory = []
         if message.reference is not None:
