@@ -181,6 +181,8 @@ name = "cinematic"
 version = "0.1.0"
 dependencies = [
  "async-openai",
+ "rand",
+ "regex",
  "serenity",
  "tiktoken-rs",
  "tokio",

@@ -222,7 +222,9 @@ async def runChatCompletion(
         # Add message into the botsMessage, emoji to show the message is in progress
         isntFinal = len(commandReplies) and depth < 3
         await botsMessage.edit(
-            content=botsStartMessage + (isntFinal and "⌛ " or "✅ ") + userMessage.replace("\n", " ")
+            content=botsStartMessage
+            + (isntFinal and "⌛ " or "✅ ")
+            + userMessage.replace("\n", " ")
         )
 
     # Do another loop with these new replies
@@ -262,14 +264,12 @@ async def processChat(
         {
             "role": "system",
             "content": "You determine if a users message is irrelevant to you, is it related to movies, series, asking for recommendations, changing resolution, adding or removing media, checking disk space, viewing users memories etc? You reply with a single word answer, yes or no.",
-        }
-    ]
-    messages.append(
+        },
         {
             "role": "user",
             "content": f"{userTextHistory + userText}\nDo not respond to the above message, is the above text irrelevant? Reply with a single word answer, only say yes if certain",
         },
-    )
+    ]
     response = openai.ChatCompletion.create(
         model="gpt-4", messages=messages, temperature=0.7, max_tokens=2, n=3
     )
