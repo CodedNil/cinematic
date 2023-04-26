@@ -296,6 +296,7 @@ class ExamplesAPI:
                                 returnPrompts.append(
                                     {"role": "system", "content": line[2:]}
                                 )
+                        break
 
             # Add the messages making clear it is an example
             returnPrompts.append(

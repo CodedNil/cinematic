@@ -10,10 +10,7 @@ use serenity::{
 };
 
 use async_openai::{
-    types::{
-        ChatCompletionRequestMessage, ChatCompletionRequestMessageArgs,
-        CreateChatCompletionRequestArgs, CreateChatCompletionResponse, Role,
-    },
+    types::{ChatCompletionRequestMessage, ChatCompletionRequestMessageArgs, Role},
     Client as OpenAiClient,
 };
 
@@ -27,6 +24,9 @@ use regex::Regex;
 
 struct Handler;
 
+mod examples;
+mod relevance;
+
 async fn process_chat(
     openai_client: &OpenAiClient,
     user_name: String,                                  // The users name
@@ -38,68 +38,23 @@ async fn process_chat(
     message_history_text: String,                       // The message history text
     reply_text: String, // The text used in the reply while processing
 ) {
-    // Don't reply to non media queries, compare user_text with the ai model
-    let mut user_text_total = String::new();
     // Get messages from user, add their text plus a new line
-    for message in message_history {
+    let mut user_text_total = String::new();
+    for message in &message_history {
         if message.role == Role::User {
             user_text_total.push_str(&format!("{}\n", &message.content));
         }
     }
-    // Add the users message
+    // Add the users latest message
     user_text_total.push_str(&user_text);
-    // Remove new lines and replace with a comma, remove the 💬 emoji, trim and convert to string
     user_text_total = user_text_total
         .replace("\n", ", ")
         .replace("💬", "")
         .trim()
         .to_string();
-    let request = CreateChatCompletionRequestArgs::default()
-        .max_tokens(4u16)
-        .model("gpt-3.5-turbo")
-        .n(3u8)
-        .messages([
-            ChatCompletionRequestMessageArgs::default()
-                .role(Role::System)
-                .content("You determine if a users message is irrelevant to you, is it related to movies, series, asking for recommendations, changing resolution, adding or removing media, checking disk space, viewing users memories etc? You reply with a single word answer, yes or no.")
-                .build().unwrap(),
-            ChatCompletionRequestMessageArgs::default()
-                .role(Role::User)
-                .content(format!("{user_text_total}\nDo not respond to the above message, is the above text irrelevant? Reply with a single word answer, only say yes if certain"))
-                .build().unwrap(),
-        ])
-        .build().unwrap();
 
-    let mut tries = 0;
-    let response = loop {
-        let response = openai_client.chat().create(request.clone()).await;
-        if let Ok(response) = response {
-            break Ok(response);
-        } else {
-            tries += 1;
-            if tries >= 3 {
-                break response;
-            }
-        }
-    };
-
-    // TODO log the openai call and response
-
-    // Return from errors
-    if let Err(error) = response {
-        println!("Error: {:?}", error);
-        return;
-    }
-    let response: CreateChatCompletionResponse = response.unwrap();
-
-    // Check each response choice for a yes
-    let mut is_valid = false;
-    for choice in response.choices {
-        if !choice.message.content.to_lowercase().contains("yes") {
-            is_valid = true;
-        }
-    }
-    if !is_valid {
+    // Don't reply to non media queries, compare user_text_total with the ai model
+    if !relevance::check_relevance(openai_client, user_text_total.clone()).await {
         // Edit the message to let the user know the message is not valid
         bot_message
             .edit(&ctx.http, |msg: &mut serenity::builder::EditMessage| {
@@ -118,8 +73,8 @@ async fn process_chat(
         .await
         .unwrap();
 
-    // TODO Get relevant examples
-    // relevantExamples = Examples.get_examples(userTextHistory + userText)
+    // Get relevant examples
+    let relevant_examples = examples::get_examples(openai_client, user_text_total);
 
     // Edit the bot_message to let the user know it is progressing
     bot_message
@@ -129,15 +84,33 @@ async fn process_chat(
         .await
         .unwrap();
 
-    // # Get current messages
-    // currentMessage = []
-    // currentMessage.append({"role": "user", "content": f"Hi my name is {usersName}"})
-    // currentMessage.append({"role": "assistant", "content": f"Hi, how can I help you?"})
-    // # Add message history
-    // for message in messageHistory:
-    //     currentMessage.append(message)
-    // # Add users message
-    // currentMessage.append({"role": "user", "content": userText})
+    // Get current messages
+    let mut current_message: Vec<ChatCompletionRequestMessage> = vec![
+        ChatCompletionRequestMessageArgs::default()
+            .role(Role::User)
+            .content(format!("Hi my name is {user_name}"))
+            .build()
+            .unwrap(),
+        ChatCompletionRequestMessageArgs::default()
+            .role(Role::Assistant)
+            .content(format!("Hi, how can I help you?"))
+            .build()
+            .unwrap(),
+    ];
+    // Merge in message_history
+    for message in &message_history {
+        current_message.push(message.clone());
+    }
+    // Add users message
+    current_message.push(
+        ChatCompletionRequestMessageArgs::default()
+            .role(Role::User)
+            .content(user_text)
+            .build()
+            .unwrap(),
+    );
+
+    println!("current_message: {:?}", current_message);
 
     // # Run chat completion
     // await runChatCompletion(
@@ -210,6 +183,16 @@ impl EventHandler for Handler {
             if replied_to.author.id == bot_user.id {
                 // See if the message is completed
                 if !replied_to.content.contains("✅") {
+                    return;
+                }
+                // See if the message is passed the thread limit
+                let mut count = 0;
+                for c in replied_to.content.chars() {
+                    if c == '☑' {
+                        count += 1;
+                    }
+                }
+                if count > 3 {
                     return;
                 }
                 valid_reply = true;
