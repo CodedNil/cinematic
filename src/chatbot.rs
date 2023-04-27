@@ -23,9 +23,12 @@ use crate::relevance;
 
 /// Run the chat completition
 pub async fn run_chat_completition(
-    openai_client: &OpenAiClient,
-    relevant_examples: Option<Vec<ChatCompletionRequestMessage>>,
-    message: Vec<ChatCompletionRequestMessage>,
+    openai_client: &OpenAiClient, // The openai client
+    relevant_examples: Option<Vec<ChatCompletionRequestMessage>>, // The relevant examples
+    message: Vec<ChatCompletionRequestMessage>, // The message to send to the API
+    ctx: DiscordContext,          // The discord context
+    mut bot_message: DiscordMessage, // The reply to the user
+    message_history_text: String, // The message history text
 ) {
     // Get current date and time in DD/MM/YYYY and HH:MM:SS format
     let date = Local::now().format("%d/%m/%Y").to_string();
@@ -53,7 +56,7 @@ pub async fn run_chat_completition(
 
     // Create the openai request
     let request = CreateChatCompletionRequestArgs::default()
-        .model("gpt-3.5-turbo")
+        .model("gpt-4")
         .max_tokens(1024u16)
         .messages(chat_query)
         .build()
@@ -61,21 +64,51 @@ pub async fn run_chat_completition(
 
     // Stream the data
     let mut stream = openai_client.chat().create_stream(request).await.unwrap();
-
+    // TODO if this fails try again up to 3 times
+    let mut users_text = String::new();
+    let mut last_edit = Local::now();
     while let Some(result) = stream.next().await {
+        // Get the result of this chunk
         match result {
             Ok(response) => {
-                response.choices.iter().for_each(|chat_choice| {
-                    if let Some(ref content) = chat_choice.delta.content {
-                        println!("{}", content);
+                // Get the first choice of the response
+                let chat_choice = response.choices.first().unwrap();
+                if let Some(ref content) = chat_choice.delta.content {
+                    println!("{}", content);
+                    // Add chunk to users text
+                    users_text.push_str(content);
+                    // Edit the discord message with the new content, edit it threaded so it doesnt interrupt the stream, max edits per second
+                    if last_edit.timestamp_millis() + 1000 < Local::now().timestamp_millis() {
+                        let ctx_c = ctx.clone();
+                        let mut bot_message_c = bot_message.clone();
+                        let message_history_text_c = message_history_text.clone();
+                        let users_text_c = users_text.clone();
+                        tokio::spawn(async move {
+                            bot_message_c
+                                .edit(&ctx_c.http, |msg| {
+                                    msg.content(format!(
+                                        "{message_history_text_c}⌛ {users_text_c}"
+                                    ))
+                                })
+                                .await
+                                .unwrap();
+                        });
+                        last_edit = Local::now();
                     }
-                });
+                }
             }
             Err(err) => {
                 println!("error: {err}");
             }
         }
     }
+    // Edit the discord message with the new content
+    bot_message
+        .edit(&ctx.http, |msg| {
+            msg.content(format!("{message_history_text}✅ {users_text}"))
+        })
+        .await
+        .unwrap();
 }
 
 /// Process the chat message from the user
@@ -163,5 +196,13 @@ pub async fn process_chat(
     );
 
     // Run chat completion
-    run_chat_completition(openai_client, relevant_examples, current_message).await;
+    run_chat_completition(
+        openai_client,
+        relevant_examples,
+        current_message,
+        ctx,
+        bot_message,
+        message_history_text,
+    )
+    .await;
 }

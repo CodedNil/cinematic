@@ -1,5 +1,6 @@
 /target
 *.json
+memories.toml
 credentials.toml
 *.pyc
 logs/*

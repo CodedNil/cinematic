@@ -16,7 +16,7 @@ pub async fn check_relevance(openai_client: &OpenAiClient, user_text_total: Stri
         .messages([
             ChatCompletionRequestMessageArgs::default()
                 .role(Role::System)
-                .content("You determine if a users message is irrelevant to you, is it related to movies, series, asking for recommendations, changing resolution, adding or removing media, checking disk space, viewing users memories etc? You reply with a single word answer, yes or no.")
+                .content("You determine if a users message is irrelevant to you, is it related to media? Examples of relevant messages: Is movie on, Add series, Remove movie, Change movie to 1080p, Recommend me something, How much space am I using, What memories do you have for me. You reply with a single word answer, yes or no.")
                 .build().unwrap(),
             ChatCompletionRequestMessageArgs::default()
                 .role(Role::User)
@@ -29,8 +29,8 @@ pub async fn check_relevance(openai_client: &OpenAiClient, user_text_total: Stri
     let mut tries = 0;
     let response = loop {
         let response = openai_client.chat().create(request.clone()).await;
-        if let Ok(response) = response {
-            break Ok(response);
+        if let Ok(r) = response {
+            break Ok(r);
         } else {
             tries += 1;
             if tries >= 3 {
