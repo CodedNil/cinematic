@@ -19,41 +19,39 @@ use chrono::Local;
 use futures::StreamExt;
 use regex::Regex;
 
-use crate::examples;
-use crate::relevance;
+use crate::plugins;
 
 /// Run the chat completition
 pub async fn run_chat_completition(
-    openai_client: &OpenAiClient, // The openai client
-    relevant_examples: Option<Vec<ChatCompletionRequestMessage>>, // The relevant examples
-    message: Vec<ChatCompletionRequestMessage>, // The message to send to the API
-    ctx: DiscordContext,          // The discord context
+    openai_client: &OpenAiClient,    // The openai client
+    ctx: DiscordContext,             // The discord context
     mut bot_message: DiscordMessage, // The reply to the user
-    message_history_text: String, // The message history text
+    message_history_text: String,    // The message history text
+    users_text: String,              // The users text
 ) {
     // Get current date and time in DD/MM/YYYY and HH:MM:SS format
     let date = Local::now().format("%d/%m/%Y").to_string();
-    let time = Local::now().format("%H:%M:%S").to_string();
+    let time = Local::now().format("%H:%M").to_string();
 
     // The initial messages to send to the API
     let mut chat_query: Vec<ChatCompletionRequestMessage> = vec![
         ChatCompletionRequestMessageArgs::default()
             .role(Role::System)
-            .content("You are media management assistant called CineMatic, enthusiastic, knowledgeable and passionate about all things media; always run lookups to ensure correct id, do not rely on chat history, if the data you have received does not contain what you need, you reply with the truthful answer of unknown, responses should all be on one line (with comma separation) and compact language")
-            .build()
-            .unwrap(),
-        ChatCompletionRequestMessageArgs::default()
-            .role(Role::Assistant)
-            .content(format!("The current date is {date}, the current time is {time}, if needing data beyond 2021 training data you can use a web search"))
+            .content(format!("You are media management assistant called CineMatic, enthusiastic, knowledgeable and passionate about all things media\nYou always run lookups to ensure correct id, do not rely on chat history, if the data you have received does not contain what you need you reply with the truthful answer of unknown, responses should all be on one line (with comma separation) and compact language, use emojis to express emotion to the user. The current date is {date}, the current time is {time}"))
             .build()
             .unwrap(),
     ];
-    // Add relevant examples
-    if let Some(mut exm) = relevant_examples {
-        chat_query.append(&mut exm)
-    }
-    // Add message
-    chat_query.append(&mut message.clone());
+    // Add plugin data to the chat query as role system
+    chat_query.push(
+        ChatCompletionRequestMessageArgs::default()
+            .role(Role::System)
+            .content(plugins::get_data())
+            .build()
+            .unwrap(),
+    );
+    // Add message history to the chat query as role system
+    // chat_query.append(&mut message.clone());
+    println!("chat_query: {:?}", chat_query);
 
     // Create the openai request
     let request = CreateChatCompletionRequestArgs::default()
@@ -139,52 +137,43 @@ pub async fn run_chat_completition(
 /// Process the chat message from the user
 pub async fn process_chat(
     openai_client: &OpenAiClient,
-    user_name: String,                                  // The users name
-    user_id: String,                                    // The users id
-    user_text: String,                                  // Users text to bot
-    ctx: DiscordContext,                                // The discord context
-    mut bot_message: DiscordMessage,                    // The reply to the user
-    message_history: Vec<ChatCompletionRequestMessage>, // The message history
-    message_history_text: String,                       // The message history text
-    reply_text: String, // The text used in the reply while processing
+    user_name: String,               // The users name
+    user_id: String,                 // The users id
+    user_text: String,               // Users text to bot
+    ctx: DiscordContext,             // The discord context
+    mut bot_message: DiscordMessage, // The message reply to the user
+    message_history_text: String, // The message history text, each starts with emoji identifying role
+    reply_text: String, // The text used in the reply while processing "Hey there I am processing your request"
 ) {
-    // Get messages from user, add their text plus a new line
+    // Go through each line of message_history_text, if it starts with 💬 add it to user_text_total
     let mut user_text_total = String::new();
-    for message in &message_history {
-        if message.role == Role::User {
-            user_text_total.push_str(&format!("{}\n", &message.content));
+    for line in message_history_text.lines() {
+        if line.starts_with("💬 ") {
+            user_text_total.push_str(line.replace("💬 ", "").as_str());
         }
     }
     // Add the users latest message
     user_text_total.push_str(&user_text);
-    user_text_total = user_text_total
-        .replace("\n", ", ")
-        .replace("💬", "")
-        .trim()
-        .to_string();
 
-    // Don't reply to non media queries, compare user_text_total with the ai model
-    if !relevance::check_relevance(openai_client, user_text_total.clone()).await {
-        // Edit the message to let the user know the message is not valid
-        bot_message
-            .edit(&ctx.http, |msg: &mut serenity::builder::EditMessage| {
-                msg.content(format!("{message_history_text}❌ Hi, I'm a media bot. I can help you with media related questions. What would you like to know or achieve?"))
-            })
-            .await
-            .unwrap();
-        return;
-    }
+    // // Don't reply to non media queries, compare user_text_total with the ai model
+    // if !plugins::relevance::check_relevance(openai_client, user_text_total.clone()).await {
+    //     // Edit the message to let the user know the message is not valid
+    //     bot_message
+    //         .edit(&ctx.http, |msg: &mut serenity::builder::EditMessage| {
+    //             msg.content(format!("{message_history_text}❌ Hi, I'm a media bot. I can help you with media related questions. What would you like to know or achieve?"))
+    //         })
+    //         .await
+    //         .unwrap();
+    //     return;
+    // }
 
-    // Edit the bot_message to let the user know the message is valid and it is progressing
-    bot_message
-        .edit(&ctx.http, |msg| {
-            msg.content(format!("{message_history_text}⌛ 2/3 {reply_text}"))
-        })
-        .await
-        .unwrap();
-
-    // Get relevant examples
-    let relevant_examples = examples::get_examples(openai_client, user_text_total).await;
+    // // Edit the bot_message to let the user know the message is valid and it is progressing
+    // bot_message
+    //     .edit(&ctx.http, |msg| {
+    //         msg.content(format!("{message_history_text}⌛ 2/3 {reply_text}"))
+    //     })
+    //     .await
+    //     .unwrap();
 
     // Edit the bot_message to let the user know it is progressing
     bot_message
@@ -194,40 +183,13 @@ pub async fn process_chat(
         .await
         .unwrap();
 
-    // Get current messages
-    let mut current_message: Vec<ChatCompletionRequestMessage> = vec![
-        ChatCompletionRequestMessageArgs::default()
-            .role(Role::User)
-            .content(format!("Hi my name is {user_name}"))
-            .build()
-            .unwrap(),
-        ChatCompletionRequestMessageArgs::default()
-            .role(Role::Assistant)
-            .content(format!("Hi, how can I help you?"))
-            .build()
-            .unwrap(),
-    ];
-    // Merge in message_history
-    for message in &message_history {
-        current_message.push(message.clone());
-    }
-    // Add users message
-    current_message.push(
-        ChatCompletionRequestMessageArgs::default()
-            .role(Role::User)
-            .content(&user_text)
-            .build()
-            .unwrap(),
-    );
-
     // Run chat completion
     run_chat_completition(
         openai_client,
-        relevant_examples,
-        current_message,
         ctx,
         bot_message,
         message_history_text,
+        user_text,
     )
     .await;
 }

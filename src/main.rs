@@ -18,9 +18,7 @@ use toml::Value;
 
 mod chatbot;
 mod discordbot;
-mod examples;
-mod relevance;
-mod websearch;
+mod plugins;
 
 #[tokio::main]
 async fn main() {

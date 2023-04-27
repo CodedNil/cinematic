@@ -4,8 +4,6 @@ use serenity::{
     prelude::{Context as DiscordContext, EventHandler},
 };
 
-use async_openai::types::{ChatCompletionRequestMessage, ChatCompletionRequestMessageArgs, Role};
-
 use crate::OpenAiApi;
 
 use rand::seq::SliceRandom;
@@ -55,8 +53,20 @@ impl EventHandler for Handler {
             }
         }
 
-        // If message is a reply to the bot, create a message history
-        let mut message_history: Vec<ChatCompletionRequestMessage> = Vec::new();
+        // Remove new lines, mentions and trim whitespace, reject empty messages
+        let regex = Regex::new(r"(?m)<[@#]&?\d+>").unwrap();
+        let mut user_text = msg.content.replace("\n", " ").to_string();
+        user_text = regex.replace_all(&user_text, "").trim().to_string();
+        if cfg!(debug_assertions) {
+            // Remove the first char "!" in debug
+            user_text = user_text[1..].trim().to_string();
+        }
+        if user_text == "" {
+            return;
+        }
+
+        // If message is a reply to the bot, gather message history
+        let mut message_history_text = String::new();
         let mut valid_reply = false;
         if let Some(message_reference) = &msg.message_reference {
             // Get the message replied to
@@ -87,37 +97,7 @@ impl EventHandler for Handler {
                     return;
                 }
                 valid_reply = true;
-                // Split message by lines
-                let content = replied_to.content.split("\n");
-                for msg in content {
-                    // If the line is a reply to the bot, add it to the message history
-                    if msg.starts_with("✅") {
-                        message_history.push(
-                            ChatCompletionRequestMessageArgs::default()
-                                .role(Role::Assistant)
-                                .content(msg.replace("✅ ", "☑️ ").trim())
-                                .build()
-                                .unwrap(),
-                        );
-                    } else if msg.starts_with("☑️") {
-                        message_history.push(
-                            ChatCompletionRequestMessageArgs::default()
-                                .role(Role::Assistant)
-                                .content(msg.trim())
-                                .build()
-                                .unwrap(),
-                        );
-                    // If the line is a reply to the user, add it to the message history
-                    } else if msg.starts_with("💬") {
-                        message_history.push(
-                            ChatCompletionRequestMessageArgs::default()
-                                .role(Role::User)
-                                .content(msg.trim())
-                                .build()
-                                .unwrap(),
-                        );
-                    }
-                }
+                message_history_text = replied_to.content.clone().replace("✅ ", "☑️ ").trim().to_string();
             }
         } else {
             valid_reply = true;
@@ -126,31 +106,13 @@ impl EventHandler for Handler {
         if !valid_reply {
             return;
         }
+        // Add the users message to the message history text
+        message_history_text.push_str(&format!("💬 {user_text}\n"));
 
         // Collect users id and name
         let user_id = msg.author.id.to_string();
         let user_name = msg.author.name.clone();
         println!("Message from {} ({}): {}", user_name, user_id, msg.content);
-
-        // Remove new lines, mentions and trim whitespace
-        let regex = Regex::new(r"(?m)<[@#]&?\d+>").unwrap();
-        let mut user_text = msg.content.replace("\n", " ").to_string();
-        user_text = regex.replace_all(&user_text, "").trim().to_string();
-        if cfg!(debug_assertions) {
-            // Remove the first char "!" in debug
-            user_text = user_text[1..].trim().to_string();
-        }
-
-        if user_text == "" {
-            return;
-        }
-
-        let mut message_history_text = String::new();
-        for msg in &message_history {
-            message_history_text.push_str(&format!("{}\n", msg.content));
-        }
-        // Add the users message to the message history
-        message_history_text.push_str(&format!("💬 {user_text}\n"));
 
         let reply_messages = vec![
             "Hey there! Super excited to process your message, give me just a moment... 🎬",
@@ -201,7 +163,6 @@ impl EventHandler for Handler {
                 user_text,
                 ctx_clone,
                 bot_message,
-                message_history,
                 message_history_text,
                 reply_text,
             )

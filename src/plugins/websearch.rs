@@ -2,13 +2,19 @@ use reqwest;
 use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use serde_json;
-use std::error::Error;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SearchResult {
     title: String,
     link: String,
     snippet: String,
+}
+
+// Plugins data
+pub fn get_plugin_data() -> String {
+    let mut data = String::new();
+    data.push_str("WEB: Searches websites for a query, replies with the answered query\n");
+    data
 }
 
 /// Perform a DuckDuckGo Search and return the results
