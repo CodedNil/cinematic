@@ -20,6 +20,7 @@ mod chatbot;
 mod discordbot;
 mod examples;
 mod relevance;
+mod websearch;
 
 #[tokio::main]
 async fn main() {

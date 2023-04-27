@@ -17,6 +17,7 @@ impl TypeMapKey for OpenAiApi {
 
 use chrono::Local;
 use futures::StreamExt;
+use regex::Regex;
 
 use crate::examples;
 use crate::relevance;
@@ -65,8 +66,12 @@ pub async fn run_chat_completition(
     // Stream the data
     let mut stream = openai_client.chat().create_stream(request).await.unwrap();
     // TODO if this fails try again up to 3 times
-    let mut users_text = String::new();
+    let mut full_text = String::new();
+    let mut user_text = String::new();
+    let mut last_user_text = String::new();
     let mut last_edit = Local::now();
+    let mut commands: Vec<String> = Vec::new();
+    let mut command_replies: Vec<String> = Vec::new();
     while let Some(result) = stream.next().await {
         // Get the result of this chunk
         match result {
@@ -74,21 +79,37 @@ pub async fn run_chat_completition(
                 // Get the first choice of the response
                 let chat_choice = response.choices.first().unwrap();
                 if let Some(ref content) = chat_choice.delta.content {
-                    println!("{}", content);
-                    // Add chunk to users text
-                    users_text.push_str(content);
+                    // Add chunk to full text
+                    full_text.push_str(content);
+                    // Get commands and user text out of the full text, commands are within []
+                    let re_command = Regex::new(r"\[(.*?)\]").unwrap();
+                    for cap in re_command.captures_iter(&full_text) {
+                        // If command is not in commands, add it
+                        if !commands.contains(&cap[1].to_string()) {
+                            commands.push(cap[1].to_string());
+                            // TODO Run the command
+                        }
+                    }
+                    // User text is outside [], opened [ that arent closed count everything past them as not user text
+                    let re_user = Regex::new(r"(?m)(?:\[[^\]\[]*?\]|^)([^\[\]]+)").unwrap();
+                    user_text = String::new();
+                    for cap in re_user.captures_iter(&full_text) {
+                        user_text.push_str(&cap[1]);
+                    }
+
                     // Edit the discord message with the new content, edit it threaded so it doesnt interrupt the stream, max edits per second
-                    if last_edit.timestamp_millis() + 1000 < Local::now().timestamp_millis() {
+                    if last_user_text != user_text
+                        && last_edit.timestamp_millis() + 1000 < Local::now().timestamp_millis()
+                    {
+                        last_user_text = user_text.clone();
                         let ctx_c = ctx.clone();
                         let mut bot_message_c = bot_message.clone();
                         let message_history_text_c = message_history_text.clone();
-                        let users_text_c = users_text.clone();
+                        let user_text_c = user_text.clone();
                         tokio::spawn(async move {
                             bot_message_c
                                 .edit(&ctx_c.http, |msg| {
-                                    msg.content(format!(
-                                        "{message_history_text_c}⌛ {users_text_c}"
-                                    ))
+                                    msg.content(format!("{message_history_text_c}⌛ {user_text_c}"))
                                 })
                                 .await
                                 .unwrap();
@@ -103,12 +124,16 @@ pub async fn run_chat_completition(
         }
     }
     // Edit the discord message with the new content
-    bot_message
-        .edit(&ctx.http, |msg| {
-            msg.content(format!("{message_history_text}✅ {users_text}"))
-        })
-        .await
-        .unwrap();
+    if user_text.len() > 0 {
+        bot_message
+            .edit(&ctx.http, |msg| {
+                msg.content(format!("{message_history_text}✅ {user_text}"))
+            })
+            .await
+            .unwrap();
+    }
+
+    // TODO if there are system returns, process those
 }
 
 /// Process the chat message from the user
