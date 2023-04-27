@@ -6,6 +6,7 @@ use async_openai::{
     Client as OpenAiClient,
 };
 
+/// Check if a message is relevant as a media query, returns true if relevant
 pub async fn check_relevance(openai_client: &OpenAiClient, user_text_total: String) -> bool {
     // Check with a openai prompt if the user text is relevant
     let request = CreateChatCompletionRequestArgs::default()

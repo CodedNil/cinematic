@@ -6,6 +6,7 @@ use async_openai::{
     Client as OpenAiClient,
 };
 
+/// Get example prompts for the chatbot from a query message
 pub async fn get_examples(
     openai_client: &OpenAiClient,
     message: String,
