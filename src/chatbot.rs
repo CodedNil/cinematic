@@ -17,7 +17,6 @@ impl TypeMapKey for OpenAiApi {
 
 use chrono::Local;
 use futures::StreamExt;
-use std::io::{stdout, Write};
 
 use crate::examples;
 use crate::relevance;
@@ -63,21 +62,19 @@ pub async fn run_chat_completition(
     // Stream the data
     let mut stream = openai_client.chat().create_stream(request).await.unwrap();
 
-    let mut lock = stdout().lock();
     while let Some(result) = stream.next().await {
         match result {
             Ok(response) => {
                 response.choices.iter().for_each(|chat_choice| {
                     if let Some(ref content) = chat_choice.delta.content {
-                        write!(lock, "{}", content).unwrap();
+                        println!("{}", content);
                     }
                 });
             }
             Err(err) => {
-                writeln!(lock, "error: {err}").unwrap();
+                println!("error: {err}");
             }
         }
-        stdout().flush().unwrap();
     }
 }
 

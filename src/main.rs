@@ -7,7 +7,7 @@ use serenity::{
 
 use async_openai::Client as OpenAiClient;
 
-struct OpenAiApi;
+pub struct OpenAiApi;
 impl TypeMapKey for OpenAiApi {
     type Value = OpenAiClient;
 }

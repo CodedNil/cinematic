@@ -1,18 +1,12 @@
 use serenity::{
     async_trait,
     model::{channel::Message as DiscordMessage, gateway::Ready},
-    prelude::{Context as DiscordContext, EventHandler, TypeMapKey},
+    prelude::{Context as DiscordContext, EventHandler},
 };
 
-use async_openai::{
-    types::{ChatCompletionRequestMessage, ChatCompletionRequestMessageArgs, Role},
-    Client as OpenAiClient,
-};
+use async_openai::types::{ChatCompletionRequestMessage, ChatCompletionRequestMessageArgs, Role};
 
-struct OpenAiApi;
-impl TypeMapKey for OpenAiApi {
-    type Value = OpenAiClient;
-}
+use crate::OpenAiApi;
 
 use rand::seq::SliceRandom;
 use regex::Regex;
