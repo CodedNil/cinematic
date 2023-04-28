@@ -22,6 +22,8 @@ mod plugins;
 
 #[tokio::main]
 async fn main() {
+    let search = plugins::websearch::brave("iron man".to_string()).await;
+
     // Read credentials.toml file to get keys
     let mut file = File::open("credentials.toml").expect("Failed to open credentials file");
     let mut contents = String::new();

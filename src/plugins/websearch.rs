@@ -18,12 +18,9 @@ pub struct SearchResult {
     snippet: String,
     text: String,
 }
-
 // Plugins data
 pub fn get_plugin_data() -> String {
-    let mut data = String::new();
-    data.push_str("!WEB: Searches websites for a query, replies with the answered query\n");
-    data
+    "!WEB: Searches websites for a query, replies with the answered query".to_string()
 }
 
 /// Perform a DuckDuckGo Search and return the results
@@ -32,15 +29,65 @@ pub async fn duckduckgo(
     num_results: i32,
 ) -> Result<Vec<SearchResult>, Box<dyn std::error::Error>> {
     // Get the search results
-    let url = format!("https://ddg-api.herokuapp.com/search?query={query}&limit={num_results}");
+    let url = format!("https://api.duckduckgo.com/?q={}&format=json", query);
     let response = reqwest::get(&url).await;
     if !response.is_ok() {
         return Err(format!("Failed to fetch the URL: {}", &url).into());
     }
 
-    let search = response.unwrap().text().await?;
-    let search_results: Vec<SearchResult> = serde_json::from_str(&search).unwrap();
-    return Ok(search_results);
+    // Parse the search results
+    let json_string = response.unwrap().text().await?;
+    let search: serde_json::Value = serde_json::from_str(&json_string)?;
+    let mut results: Vec<SearchResult> = Vec::new();
+    for index in 0..num_results {
+        let result = &search["RelatedTopics"][index as usize];
+        if result.is_null() {
+            break;
+        }
+        if result["FirstURL"].is_null() {
+            continue;
+        }
+        let title = result["Text"].to_string();
+        let link = result["FirstURL"].to_string();
+        let snippet = result["Result"].to_string();
+        results.push(SearchResult {
+            title,
+            link,
+            snippet,
+            text: String::new(),
+        });
+    }
+
+    return Ok(results);
+}
+
+pub async fn brave(query: String) -> Result<(), Box<dyn std::error::Error>> {
+    let brave_search_url = format!("https://search.brave.com/search?q={}", query);
+
+    let html = fetch_html(&brave_search_url).await?;
+    let search_results = extract_search_results(&html);
+
+    for (i, result) in search_results.iter().enumerate() {
+        println!("{}. {}", i + 1, result);
+    }
+
+    Ok(())
+}
+
+async fn fetch_html(url: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let client = reqwest::Client::new();
+    let response = client.get(url).send().await?.text().await?;
+    Ok(response)
+}
+
+fn extract_search_results(html: &str) -> Vec<String> {
+    let document = Html::parse_document(html);
+    // Get div id results, inside this are the search results
+    // class=snippet fdb for the articles
+    // id=summarizer if there is a summarizer
+    // Get div id side-right for the sidebar with infobox
+
+    return vec![];
 }
 
 /// Get the main text contents of a site
@@ -65,12 +112,15 @@ pub async fn get_main_text(url: &str) -> Result<String, Box<dyn std::error::Erro
 
 /// Perform a search with ai processing to answer a prompt
 pub async fn ai_search(openai_client: &OpenAiClient, query: String) -> String {
+    println!("Running ai_search with query: {}", query);
+
     // Get the search results
     let mut search_results = duckduckgo(query.clone(), 3).await.unwrap();
 
     // Get main content of each in parallel with tokio with timeout
     let timeout = std::time::Duration::from_secs(5);
     let mut main_texts: Vec<(String, String)> = Vec::new();
+    println!("Ai search grabbing main texts");
     for result in &search_results {
         let url = result.link.clone();
         let main_text = tokio::time::timeout(timeout, get_main_text(&url)).await;
@@ -80,6 +130,7 @@ pub async fn ai_search(openai_client: &OpenAiClient, query: String) -> String {
     }
     // Wait for all to finish, wait timeout seconds
     tokio::time::sleep(timeout).await;
+    println!("Ai search grabbed main texts");
     // Add all to the search_results.text
     let mut big_lengths = 0;
     for (url, main_text) in main_texts {
@@ -142,6 +193,8 @@ pub async fn ai_search(openai_client: &OpenAiClient, query: String) -> String {
     }
     // TODO log the openai call and response
     let response: CreateChatCompletionResponse = response.unwrap();
+
+    println!("Ai search response: {:?}", response);
 
     return response.choices.first().unwrap().message.content.clone();
 }
