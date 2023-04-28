@@ -50,7 +50,7 @@ pub async fn run_chat_completition(
             .unwrap(),
     );
     // Add message history minus the most recent line
-    let mut just_history = message_history_text[..message_history_text.len() - 2].to_string();
+    let mut just_history = message_history_text[..message_history_text.len() - 1].to_string();
     // If it contains a \n then it has history
     if just_history.contains("\n") {
         // Remove the last line
