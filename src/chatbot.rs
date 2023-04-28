@@ -49,7 +49,31 @@ pub async fn run_chat_completition(
             .build()
             .unwrap(),
     );
-    // Add message history to the chat query as role system
+    // Add message history minus the most recent line
+    let mut just_history = message_history_text[..message_history_text.len() - 2].to_string();
+    // Remove the last line
+    just_history =
+        just_history[..just_history.rfind('\n').unwrap_or(just_history.len())].to_string();
+    chat_query.push(
+        ChatCompletionRequestMessageArgs::default()
+            .role(Role::System)
+            .content(format!(
+                "Message history:\n{}",
+                just_history
+                    .replace("💬 ", "User: ")
+                    .replace("☑️ ", "CineMatic: ")
+            ))
+            .build()
+            .unwrap(),
+    );
+    // Add users message
+    chat_query.push(
+        ChatCompletionRequestMessageArgs::default()
+            .role(Role::User)
+            .content(users_text)
+            .build()
+            .unwrap(),
+    );
     // chat_query.append(&mut message.clone());
     println!("chat_query: {:?}", chat_query);
 

@@ -97,7 +97,13 @@ impl EventHandler for Handler {
                     return;
                 }
                 valid_reply = true;
-                message_history_text = replied_to.content.clone().replace("✅ ", "☑️ ").trim().to_string();
+                message_history_text = replied_to
+                    .content
+                    .clone()
+                    .replace("✅ ", "☑️ ")
+                    .trim()
+                    .to_string()
+                    + "\n";
             }
         } else {
             valid_reply = true;
