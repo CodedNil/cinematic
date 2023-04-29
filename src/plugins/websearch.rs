@@ -1,7 +1,9 @@
+use regex::Regex;
 use reqwest;
 use scraper::{Html, Selector};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json;
+use std::error::Error;
 
 use async_openai::{
     types::{
@@ -11,151 +13,183 @@ use async_openai::{
     Client as OpenAiClient,
 };
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct SearchResult {
+#[derive(Serialize, Debug)]
+pub struct SearchResultBrave {
     title: String,
     link: String,
     snippet: String,
-    text: String,
+    rating: String,
+    published: String,
 }
+#[derive(Serialize, Debug)]
+pub struct SearchBrave {
+    results: Vec<SearchResultBrave>,
+    summary: String,
+}
+
 // Plugins data
 pub fn get_plugin_data() -> String {
     "!WEB: Searches websites for a query, replies with the answered query".to_string()
 }
 
-/// Perform a DuckDuckGo Search and return the results
-pub async fn duckduckgo(
-    query: String,
-    num_results: i32,
-) -> Result<Vec<SearchResult>, Box<dyn std::error::Error>> {
-    // Get the search results
-    let url = format!("https://api.duckduckgo.com/?q={}&format=json", query);
-    let response = reqwest::get(&url).await;
+pub async fn brave(query: String) -> Result<SearchBrave, Box<dyn Error>> {
+    let response = reqwest::get(format!("https://search.brave.com/search?q={}", query)).await;
     if !response.is_ok() {
-        return Err(format!("Failed to fetch the URL: {}", &url).into());
+        return Err("Failed to fetch brave search".into());
     }
 
     // Parse the search results
-    let json_string = response.unwrap().text().await?;
-    let search: serde_json::Value = serde_json::from_str(&json_string)?;
-    let mut results: Vec<SearchResult> = Vec::new();
-    for index in 0..num_results {
-        let result = &search["RelatedTopics"][index as usize];
-        if result.is_null() {
-            break;
+    let html_text = response.unwrap().text().await.unwrap();
+    let document = Html::parse_document(&html_text);
+    let selector = Selector::parse(".snippet").unwrap();
+
+    let brave_organic_search_results: Vec<SearchResultBrave> = document
+        .select(&selector)
+        .filter_map(|element| {
+            let title = element
+                .select(&Selector::parse(".snippet-title").unwrap())
+                .next()?
+                .text()
+                .collect::<String>()
+                .trim()
+                .to_string();
+
+            if title.is_empty() {
+                return None;
+            }
+
+            let link = element
+                .select(&Selector::parse(".result-header").unwrap())
+                .next()?
+                .value()
+                .attr("href")?
+                .to_string();
+
+            let raw_snippet = element
+                .select(
+                    &Selector::parse(
+                        ".snippet-content .snippet-description , .snippet-description:nth-child(1)",
+                    )
+                    .unwrap(),
+                )
+                .next()?
+                .text()
+                .collect::<String>()
+                .trim()
+                .to_string();
+
+            let (published, snippet) = if let Some(index) = raw_snippet.find(" -\n") {
+                let (published, snippet) = raw_snippet.split_at(index);
+                (
+                    published.trim().to_string(),
+                    snippet[2..].trim().to_string(),
+                )
+            } else {
+                (String::new(), raw_snippet)
+            };
+
+            let rating = element
+                .select(&Selector::parse(".ml-10").unwrap())
+                .next()
+                .map(|el| el.text().collect::<String>())
+                .unwrap_or_default()
+                .replace("\n", "")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            Some(SearchResultBrave {
+                title,
+                link,
+                snippet,
+                rating,
+                published,
+            })
+        })
+        .collect();
+
+    // Get the summarizer text if exists
+    let response = reqwest::get(format!(
+        "https://search.brave.com/api/summarizer?key={}:us:en",
+        query
+    ))
+    .await;
+    let mut summary: Option<String> = None;
+    if response.is_ok() {
+        // Get the text as json
+        let json_string = response.unwrap().text().await.unwrap();
+        let json: serde_json::Value = serde_json::from_str(&json_string).unwrap();
+        // If json has ["results"][0]["text"] then use that as the summary
+        if !json["results"][0]["text"].is_null() {
+            let text = json["results"][0]["text"].as_str().unwrap_or("No summary");
+            let regex = Regex::new(r#"<[^>]*>"#).unwrap();
+            summary = Some(regex.replace_all(text, "").to_string());
         }
-        if result["FirstURL"].is_null() {
-            continue;
-        }
-        let title = result["Text"].to_string();
-        let link = result["FirstURL"].to_string();
-        let snippet = result["Result"].to_string();
-        results.push(SearchResult {
-            title,
-            link,
-            snippet,
-            text: String::new(),
-        });
     }
 
-    return Ok(results);
-}
-
-pub async fn brave(query: String) -> Result<(), Box<dyn std::error::Error>> {
-    let brave_search_url = format!("https://search.brave.com/search?q={}", query);
-
-    let html = fetch_html(&brave_search_url).await?;
-    let search_results = extract_search_results(&html);
-
-    for (i, result) in search_results.iter().enumerate() {
-        println!("{}. {}", i + 1, result);
-    }
-
-    Ok(())
-}
-
-async fn fetch_html(url: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let client = reqwest::Client::new();
-    let response = client.get(url).send().await?.text().await?;
-    Ok(response)
-}
-
-fn extract_search_results(html: &str) -> Vec<String> {
-    let document = Html::parse_document(html);
-    // Get div id results, inside this are the search results
-    // class=snippet fdb for the articles
-    // id=summarizer if there is a summarizer
-    // Get div id side-right for the sidebar with infobox
-
-    return vec![];
-}
-
-/// Get the main text contents of a site
-pub async fn get_main_text(url: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let response = reqwest::get(url).await;
-    if !response.is_ok() {
-        return Err(format!("Failed to fetch the URL: {}", url).into());
-    }
-
-    let body = response.unwrap().text().await?;
-    let document = Html::parse_document(&body);
-
-    // Modify the CSS selector according to the specific page structure you want to extract the content from
-    let content_selector = Selector::parse("body")?;
-    let content_element = document
-        .select(&content_selector)
-        .next()
-        .ok_or_else(|| "Failed to find the main content element")?;
-
-    Ok(content_element.text().collect::<String>())
+    return Ok(SearchBrave {
+        results: brave_organic_search_results,
+        summary: summary.unwrap_or_default(),
+    });
 }
 
 /// Perform a search with ai processing to answer a prompt
 pub async fn ai_search(openai_client: &OpenAiClient, query: String) -> String {
-    println!("Running ai_search with query: {}", query);
-
     // Get the search results
-    let mut search_results = duckduckgo(query.clone(), 3).await.unwrap();
-
-    // Get main content of each in parallel with tokio with timeout
-    let timeout = std::time::Duration::from_secs(5);
-    let mut main_texts: Vec<(String, String)> = Vec::new();
-    println!("Ai search grabbing main texts");
-    for result in &search_results {
-        let url = result.link.clone();
-        let main_text = tokio::time::timeout(timeout, get_main_text(&url)).await;
-        if main_text.is_ok() {
-            main_texts.push((url, main_text.unwrap().unwrap().clone()));
-        }
+    let mut search_results: SearchBrave = brave(query.clone()).await.unwrap();
+    if search_results.results.is_empty() {
+        return format!("No results found for {}", query);
     }
-    // Wait for all to finish, wait timeout seconds
-    tokio::time::sleep(timeout).await;
-    println!("Ai search grabbed main texts");
-    // Add all to the search_results.text
-    let mut big_lengths = 0;
-    for (url, main_text) in main_texts {
-        for result in &mut search_results {
-            if result.link == url {
-                result.text = main_text.clone();
-                big_lengths += main_text.len();
+
+    // Download a larger snippet for the first wikipedia result
+    for (index, result) in search_results.results.iter().enumerate() {
+        if result.link.contains("wikipedia.org") {
+            // Swap link for wiki rest api
+            let new_link = format!(
+                "https://en.wikipedia.org/api/rest_v1/page/html/{}",
+                result.link.split("/").last().unwrap()
+            );
+            let response = reqwest::get(new_link).await;
+            if response.is_ok() {
+                let body = response.unwrap().text().await.unwrap();
+                // Scrape the html, only include paragraphs
+                let document = Html::parse_document(&body);
+                let selector = Selector::parse("p").unwrap();
+                let mut text = document
+                    .select(&selector)
+                    .map(|element| element.text().collect::<String>())
+                    .collect::<Vec<String>>()
+                    .join("\n");
+                // Trim every line
+                text = text
+                    .lines()
+                    .map(|line| line.trim())
+                    .collect::<Vec<&str>>()
+                    .join("\n");
+                text = text.replace("\n\n", " ");
+
+                // Limit the text characters
+                text = text.chars().take(4000).collect::<String>();
+                // Replace the snippet with the new text
+                search_results.results[index].snippet = text;
             }
+
+            break;
         }
     }
 
-    // Create a blob of text to send to the ai with all site data
+    // Create a blob of text to send to the ai with all site data, with max character limit
     let mut blob = String::new();
-    for (index, result) in search_results.iter().enumerate() {
-        let mut text = result.snippet.clone();
-        // If it has text, use that instead of snippet
-        if result.text.len() > 0 {
-            // Snip the text to have a limit of characters between all big texts
-            let chars_available = (result.text.len() / big_lengths) * 6000;
-            text = result.text.clone();
-            if text.len() > chars_available {
-                text = text[..chars_available].to_string();
-            }
+    blob += &format!("Summary: {}\n", search_results.summary);
+    for (index, result) in search_results.results.iter().enumerate() {
+        blob += &format!(
+            "[{}] {} ({}): {} {}\n",
+            index, result.link, result.published, result.snippet, result.rating
+        );
+        // If the blob is too large, stop adding to it
+        if blob.len() > 8192 {
+            break;
         }
-        blob += &format!("[{}] {}: {}\n", index, result.link, text);
     }
 
     // Search with gpt through the example prompts for relevant ones
@@ -168,7 +202,7 @@ pub async fn ai_search(openai_client: &OpenAiClient, query: String) -> String {
                 .build().unwrap(),
             ChatCompletionRequestMessageArgs::default()
                 .role(Role::User)
-                .content(format!("Your answers should be on one line and compact with lists having comma separations\nBased on the given information, {query}"))
+                .content(format!("Your answers should be on one line and compact with lists having comma separations, recently published articles should get priority\nBased on the given information and only this information, {query}"))
                 .build().unwrap(),
         ])
         .build().unwrap();
@@ -193,8 +227,6 @@ pub async fn ai_search(openai_client: &OpenAiClient, query: String) -> String {
     }
     // TODO log the openai call and response
     let response: CreateChatCompletionResponse = response.unwrap();
-
-    println!("Ai search response: {:?}", response);
 
     return response.choices.first().unwrap().message.content.clone();
 }
