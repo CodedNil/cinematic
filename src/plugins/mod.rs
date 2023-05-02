@@ -3,8 +3,6 @@ pub mod memories;
 pub mod relevance;
 pub mod websearch;
 
-use async_openai::Client as OpenAiClient;
-
 /// Get data for plugins
 pub fn get_data() -> String {
     let mut data = String::new();
@@ -38,21 +36,14 @@ pub async fn get_processing_message(command: &String) -> String {
 }
 
 /// Run a command with a result
-pub async fn run_command(
-    openai_client: &OpenAiClient,
-    command: &String,
-    user_id: &String,
-    user_name: &String,
-) -> PluginReturn {
+pub async fn run_command(command: &String, user_id: &String, user_name: &String) -> PluginReturn {
     let args = command.split('~').collect::<Vec<&str>>();
     println!("Running command: {:?}", args);
 
     let result: PluginReturn = match args[0] {
-        "WEB" => websearch::ai_search(&openai_client, args[1].to_string()).await,
-        "MEM_GET" => memories::memory_get(&openai_client, args[1].to_string(), user_id).await,
-        "MEM_SET" => {
-            memories::memory_set(&openai_client, args[1].to_string(), user_id, user_name).await
-        }
+        "WEB" => websearch::ai_search(args[1].to_string()).await,
+        "MEM_GET" => memories::memory_get(args[1].to_string(), user_id).await,
+        "MEM_SET" => memories::memory_set(args[1].to_string(), user_id, user_name).await,
         _ => PluginReturn {
             result: String::from("Unknown command"),
             to_user: String::from("Attempted invalid command"),

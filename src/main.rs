@@ -1,16 +1,10 @@
-use serenity::prelude::{Client as DiscordClient, GatewayIntents, TypeMapKey};
-
-use async_openai::Client as OpenAiClient;
-
-pub struct OpenAiApi;
-impl TypeMapKey for OpenAiApi {
-    type Value = OpenAiClient;
-}
+use serenity::prelude::{Client as DiscordClient, GatewayIntents};
 
 use std::fs::File;
 use std::io::prelude::*;
 use toml::Value;
 
+mod apis;
 mod chatbot;
 mod discordbot;
 mod plugins;
@@ -23,13 +17,6 @@ async fn main() {
     file.read_to_string(&mut contents)
         .expect("Failed to read credentials file");
     let cred: Value = contents.parse().expect("Failed to parse credentials TOML");
-
-    // Configure the client with your openai api key
-    let openai_api_key: String = cred["openai_api_key"]
-        .as_str()
-        .expect("Expected a openai_api_key in the credentials.toml file")
-        .to_string();
-    let openai_client = OpenAiClient::new().with_api_key(openai_api_key);
 
     // Configure the client with your Discord bot token
     let discord_token: String = cred["discord_token"]
@@ -44,7 +31,6 @@ async fn main() {
     // Create a new instance of the Client, logging in as a bot
     let mut client: DiscordClient = DiscordClient::builder(&discord_token, intents)
         .event_handler(discordbot::Handler)
-        .type_map_insert::<OpenAiApi>(openai_client)
         .await
         .expect("Err creating client");
 

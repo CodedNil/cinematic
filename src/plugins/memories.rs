@@ -1,12 +1,9 @@
-use async_openai::{
-    types::{
-        ChatCompletionRequestMessageArgs, CreateChatCompletionRequestArgs,
-        CreateChatCompletionResponse, Role,
-    },
-    Client as OpenAiClient,
+use async_openai::types::{
+    ChatCompletionRequestMessageArgs, CreateChatCompletionRequestArgs,
+    CreateChatCompletionResponse, Role,
 };
 
-use crate::plugins::PluginReturn;
+use crate::{apis, plugins::PluginReturn};
 
 // Plugins data
 pub fn get_plugin_data() -> String {
@@ -25,11 +22,7 @@ pub async fn processing_message_set(query: String) -> String {
 }
 
 /// Perform a search with ai processing to answer a prompt
-pub async fn memory_get(
-    openai_client: &OpenAiClient,
-    search: String,
-    user_id: &String,
-) -> PluginReturn {
+pub async fn memory_get(search: String, user_id: &String) -> PluginReturn {
     // Get the key and query
     let (key, query) = match search.split_once(";") {
         Some((key, query)) => (key, query),
@@ -68,7 +61,7 @@ pub async fn memory_get(
     // Retry the request if it fails
     let mut tries = 0;
     let response = loop {
-        let response = openai_client.chat().create(request.clone()).await;
+        let response = apis::get_openai().chat().create(request.clone()).await;
         if let Ok(response) = response {
             break Ok(response);
         } else {
@@ -95,12 +88,7 @@ pub async fn memory_get(
 }
 
 /// Use ai processing to set a memory, remove or add to existing
-pub async fn memory_set(
-    openai_client: &OpenAiClient,
-    search: String,
-    user_id: &String,
-    user_name: &String,
-) -> PluginReturn {
+pub async fn memory_set(search: String, user_id: &String, user_name: &String) -> PluginReturn {
     // Get the key and query
     let (key, query) = match search.split_once(";") {
         Some((key, query)) => (key, query),
@@ -136,7 +124,7 @@ pub async fn memory_set(
     // Retry the request if it fails
     let mut tries = 0;
     let response = loop {
-        let response = openai_client.chat().create(request.clone()).await;
+        let response = apis::get_openai().chat().create(request.clone()).await;
         if let Ok(response) = response {
             break Ok(response);
         } else {

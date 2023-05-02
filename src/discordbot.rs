@@ -4,8 +4,6 @@ use serenity::{
     prelude::{Context as DiscordContext, EventHandler},
 };
 
-use crate::OpenAiApi;
-
 use rand::seq::SliceRandom;
 use regex::Regex;
 
@@ -155,15 +153,11 @@ impl EventHandler for Handler {
             .await
             .expect("Failed to send message");
 
-        // Get the openai client from the context
-        let data = (&ctx.data).read().await;
-        let openai_client = data.get::<OpenAiApi>().unwrap().clone();
         let ctx_clone = (&ctx).clone();
 
         // Spawn a new thread to process the message
         tokio::spawn(async move {
             chatbot::process_chat(
-                &openai_client,
                 user_name,
                 user_id,
                 user_text,

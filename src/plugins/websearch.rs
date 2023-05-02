@@ -5,12 +5,9 @@ use serde::Serialize;
 use serde_json;
 use std::error::Error;
 
-use async_openai::{
-    types::{
-        ChatCompletionRequestMessageArgs, CreateChatCompletionRequestArgs,
-        CreateChatCompletionResponse, Role,
-    },
-    Client as OpenAiClient,
+use async_openai::types::{
+    ChatCompletionRequestMessageArgs, CreateChatCompletionRequestArgs,
+    CreateChatCompletionResponse, Role,
 };
 
 #[derive(Serialize, Debug)]
@@ -27,7 +24,7 @@ struct SearchBrave {
     summary: String,
 }
 
-use crate::plugins::PluginReturn;
+use crate::{apis, plugins::PluginReturn};
 
 // Plugins data
 pub fn get_plugin_data() -> String {
@@ -143,7 +140,7 @@ pub async fn processing_message(query: String) -> String {
 }
 
 /// Perform a search with ai processing to answer a prompt
-pub async fn ai_search(openai_client: &OpenAiClient, query: String) -> PluginReturn {
+pub async fn ai_search(query: String) -> PluginReturn {
     // Get the search results
     let mut search_results: SearchBrave = brave(query.clone()).await.unwrap();
     if search_results.results.is_empty() {
@@ -222,7 +219,7 @@ pub async fn ai_search(openai_client: &OpenAiClient, query: String) -> PluginRet
     // Retry the request if it fails
     let mut tries = 0;
     let response = loop {
-        let response = openai_client.chat().create(request.clone()).await;
+        let response = apis::get_openai().chat().create(request.clone()).await;
         if let Ok(response) = response {
             break Ok(response);
         } else {

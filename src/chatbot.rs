@@ -1,39 +1,28 @@
-use serenity::{
-    model::channel::Message as DiscordMessage,
-    prelude::{Context as DiscordContext, TypeMapKey},
-};
+use serenity::{model::channel::Message as DiscordMessage, prelude::Context as DiscordContext};
 
-use async_openai::{
-    types::{
-        ChatCompletionRequestMessage, ChatCompletionRequestMessageArgs,
-        CreateChatCompletionRequestArgs, Role,
-    },
-    Client as OpenAiClient,
+use async_openai::types::{
+    ChatCompletionRequestMessage, ChatCompletionRequestMessageArgs,
+    CreateChatCompletionRequestArgs, Role,
 };
-struct OpenAiApi;
-impl TypeMapKey for OpenAiApi {
-    type Value = OpenAiClient;
-}
 
 use chrono::Local;
 use futures::StreamExt;
 use regex::Regex;
 use std::sync::{Arc, Mutex};
 
-use crate::plugins;
+use crate::{apis, plugins};
 
 /// Run a ai chat completition to process commands
 pub async fn chat_completition_step(
-    openai_client: &OpenAiClient,                    // The openai client
     ctx: DiscordContext,                             // The discord context
     mut bot_message: DiscordMessage,                 // The reply to the user
     message_history_text: String,                    // The message history text
-    chat_query: Vec<ChatCompletionRequestMessage>,   // The chat query to send to openai
+    chat_query: Vec<ChatCompletionRequestMessage>,   // The chat query to send to gpt
     extra_message_history_mutex: Arc<Mutex<String>>, // The extra message history mutex
     user_id: String,                                 // The user id
     user_name: String,                               // The user name
 ) -> (Vec<String>, String) {
-    // Create the openai request
+    // Create the gpt request
     let request = CreateChatCompletionRequestArgs::default()
         .model("gpt-4")
         .max_tokens(1024u16)
@@ -42,7 +31,11 @@ pub async fn chat_completition_step(
         .unwrap();
 
     // Stream the data
-    let mut stream = openai_client.chat().create_stream(request).await.unwrap();
+    let mut stream = apis::get_openai()
+        .chat()
+        .create_stream(request)
+        .await
+        .unwrap();
     let mut full_text = String::new();
     let mut user_text = String::new();
     let mut last_user_text = String::new();
@@ -67,7 +60,6 @@ pub async fn chat_completition_step(
                         if !commands.contains(&cap[1].to_string()) {
                             commands.push(cap[1].to_string().clone());
                             // Run in a thread
-                            let openai_client_c = openai_client.clone();
                             let command_c = cap[1].to_string().clone();
                             let command_replies_mutex_c = Arc::clone(&command_replies_mutex);
                             let extra_message_history_mutex_c =
@@ -83,13 +75,8 @@ pub async fn chat_completition_step(
                                     .unwrap()
                                     .push_str(format!("{processing}\n").as_str());
 
-                                let reply = plugins::run_command(
-                                    &openai_client_c,
-                                    &command_c,
-                                    &user_id,
-                                    &user_name,
-                                )
-                                .await;
+                                let reply =
+                                    plugins::run_command(&command_c, &user_id, &user_name).await;
                                 let command_reply =
                                     format!("{command_c}~{result}", result = reply.result);
                                 // Push the command plus reply into the mutex
@@ -180,7 +167,6 @@ pub async fn chat_completition_step(
 
 /// Run the chat completition
 pub async fn run_chat_completition(
-    openai_client: &OpenAiClient, // The openai client
     ctx: DiscordContext,          // The discord context
     bot_message: DiscordMessage,  // The reply to the user
     message_history_text: String, // The message history text
@@ -245,7 +231,6 @@ pub async fn run_chat_completition(
     let max_iterations = 5;
     while iteration < max_iterations {
         let (command_results, user_text) = chat_completition_step(
-            openai_client,
             ctx.clone(),
             bot_message.clone(),
             message_history_text.clone(),
@@ -295,7 +280,6 @@ pub async fn run_chat_completition(
 
 /// Process the chat message from the user
 pub async fn process_chat(
-    openai_client: &OpenAiClient,
     user_name: String,               // The users name
     user_id: String,                 // The users id
     user_text: String,               // Users text to bot
@@ -315,7 +299,7 @@ pub async fn process_chat(
     user_text_total.push_str(&user_text);
 
     // // Don't reply to non media queries, compare user_text_total with the ai model
-    // if !plugins::relevance::check_relevance(openai_client, user_text_total.clone()).await {
+    // if !plugins::relevance::check_relevance(user_text_total.clone()).await {
     //     // Edit the message to let the user know the message is not valid
     //     bot_message
     //         .edit(&ctx.http, |msg: &mut serenity::builder::EditMessage| {
@@ -336,7 +320,6 @@ pub async fn process_chat(
 
     // Run chat completion
     run_chat_completition(
-        openai_client,
         ctx,
         bot_message,
         message_history_text,

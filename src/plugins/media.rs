@@ -1,12 +1,9 @@
-use async_openai::{
-    types::{
-        ChatCompletionRequestMessageArgs, CreateChatCompletionRequestArgs,
-        CreateChatCompletionResponse, Role,
-    },
-    Client as OpenAiClient,
+use async_openai::types::{
+    ChatCompletionRequestMessageArgs, CreateChatCompletionRequestArgs,
+    CreateChatCompletionResponse, Role,
 };
 
-use crate::plugins::PluginReturn;
+use crate::{apis, plugins::PluginReturn};
 
 // Plugins data
 pub fn get_plugin_data() -> String {
@@ -23,7 +20,7 @@ pub async fn processing_message_lookup(query: String) -> String {
 }
 
 /// Perform a lookup with ai processing to answer a prompt
-pub async fn media_lookup(openai_client: &OpenAiClient, search: String) -> PluginReturn {
+pub async fn media_lookup(search: String) -> PluginReturn {
     // Get the key and query
     let (term, query) = match search.split_once(";") {
         Some((term, query)) => (term, query),
