@@ -22,8 +22,8 @@ pub async fn processing_message_lookup(query: String) -> String {
 /// Perform a lookup with ai processing to answer a prompt
 pub async fn media_lookup(search: String) -> PluginReturn {
     // Get the key and query
-    let (term, query) = match search.split_once(";") {
-        Some((term, query)) => (term, query),
+    let (terms, query) = match search.split_once(";") {
+        Some((terms, query)) => (terms, query),
         None => {
             return PluginReturn {
                 result: String::from("Invalid media query"),
@@ -35,6 +35,28 @@ pub async fn media_lookup(search: String) -> PluginReturn {
     // Recreate as generic lookup, lookup both radarr and sonnar, then return results
     // Two lists of results for movies, 2 for series
     // List for on server, list for found with term but not on server which only gives basic details
+
+    let mut searches = vec![
+        apis::arr_get(apis::ArrService::Sonarr, String::from("/api/v3/series")),
+        apis::arr_get(apis::ArrService::Radarr, String::from("/api/v3/movie")),
+    ];
+    // Add searches for each term
+    for term in terms.split(",").collect::<Vec<&str>>() {
+        let sonarr_search = apis::arr_get(
+            apis::ArrService::Sonarr,
+            format!("/api/v3/series/lookup?term={}", term),
+        );
+        let radarr_search = apis::arr_get(
+            apis::ArrService::Radarr,
+            format!("/api/v3/movie/lookup?term={}", term),
+        );
+        // Add the results to the searches
+        searches.push(sonarr_search);
+        searches.push(radarr_search);
+    }
+
+    // Await all the results
+    let results = futures::future::join_all(searches).await;
 
     return PluginReturn {
         result: String::from(""),
