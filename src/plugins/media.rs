@@ -33,8 +33,9 @@ pub async fn media_lookup(search: String) -> PluginReturn {
     };
 
     // Recreate as generic lookup, lookup both radarr and sonnar, then return results
-    // Two lists of results for movies, 2 for series
+    // 2 lists of results for movies, 2 for series
     // List for on server, list for found with term but not on server which only gives basic details
+    let start_time = std::time::Instant::now();
 
     let mut searches = vec![
         apis::arr_get(apis::ArrService::Sonarr, String::from("/api/v3/series")),
@@ -57,6 +58,36 @@ pub async fn media_lookup(search: String) -> PluginReturn {
 
     // Await all the results
     let results = futures::future::join_all(searches).await;
+    let (sonarr_all, radarr_all) = (results[0].clone(), results[1].clone());
+    let results: Vec<serde_json::Value> = results[2..].to_vec();
+    // Trim the results so each only contains 5 results max
+    let mut results_trimmed: Vec<serde_json::Value> = Vec::new();
+    for result in results {
+        let mut result_trimmed = result.clone();
+        if result.as_array().unwrap().len() > 5 {
+            result_trimmed = serde_json::json!(result.as_array().unwrap()[0..5]);
+        }
+        results_trimmed.push(result_trimmed);
+    }
+    let results = results_trimmed;
+
+    // Print length of results
+    println!("Got {} results", results.len());
+    println!("Took {}ms", start_time.elapsed().as_millis());
+
+    // Get titles of every media item in sonarr and radarr all
+    let mut sonarr_all_titles: Vec<String> = Vec::new();
+    let mut radarr_all_titles: Vec<String> = Vec::new();
+    for media in sonarr_all.as_array().unwrap() {
+        sonarr_all_titles.push(media["title"].as_str().unwrap().to_string());
+    }
+    for media in radarr_all.as_array().unwrap() {
+        radarr_all_titles.push(media["title"].as_str().unwrap().to_string());
+    }
+    let sonarr_all_titles = sonarr_all_titles.join(";");
+    let radarr_all_titles = radarr_all_titles.join(";");
+
+    println!("Got sonarr titles {}", sonarr_all_titles);
 
     return PluginReturn {
         result: String::from(""),

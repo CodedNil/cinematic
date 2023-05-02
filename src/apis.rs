@@ -1,6 +1,10 @@
 use std::fs::File;
 use std::io::prelude::*;
 
+use async_openai::types::{
+    ChatCompletionRequestMessageArgs, CreateChatCompletionRequestArgs,
+    CreateChatCompletionResponse, Role,
+};
 use async_openai::Client as OpenAiClient;
 
 pub enum ArrService {
@@ -36,6 +40,57 @@ pub fn get_openai() -> OpenAiClient {
         .expect("Expected a openai_api_key in the credentials.toml file")
         .to_string();
     OpenAiClient::new().with_api_key(openai_api_key)
+}
+
+/// Use gpt to query information
+pub async fn gpt_info_query(model: String, data: String, prompt: String) -> Result<String, String> {
+    let openai = get_openai();
+
+    // Search with gpt through the memories to answer the query
+    let request = CreateChatCompletionRequestArgs::default()
+        .model(model)
+        .messages([
+            ChatCompletionRequestMessageArgs::default()
+                .role(Role::System)
+                .content(data)
+                .build()
+                .unwrap(),
+            ChatCompletionRequestMessageArgs::default()
+                .role(Role::User)
+                .content(prompt)
+                .build()
+                .unwrap(),
+        ])
+        .build()
+        .unwrap();
+
+    // Retry the request if it fails
+    let mut tries = 0;
+    let response = loop {
+        let response = openai.chat().create(request.clone()).await;
+        // TODO log the openai call and response
+        if let Ok(response) = response {
+            break Ok(response);
+        } else {
+            tries += 1;
+            if tries >= 3 {
+                break response;
+            }
+        }
+    };
+    // Return from errors
+    if let Err(_) = response {
+        return Err("Failed to get response from openai".to_string());
+    }
+    let result = response
+        .unwrap()
+        .choices
+        .first()
+        .unwrap()
+        .message
+        .content
+        .clone();
+    return Ok(result);
 }
 
 /// Run arr request, get or post etc, then url ending like /api/v3/series/lookup?term=stargate

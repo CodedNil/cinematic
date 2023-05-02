@@ -44,33 +44,7 @@ pub async fn memory_get(search: String, user_id: &String) -> PluginReturn {
         }
     };
     // Search with gpt through the memories to answer the query
-    let request = CreateChatCompletionRequestArgs::default()
-        .model("gpt-3.5-turbo")
-        .messages([
-            ChatCompletionRequestMessageArgs::default()
-                .role(Role::System)
-                .content(memory_value)
-                .build().unwrap(),
-            ChatCompletionRequestMessageArgs::default()
-                .role(Role::User)
-                .content(format!("Your answers should be on one line and compact with lists having comma separations\nBased on the given information and only this information, the user {query}"))
-                .build().unwrap(),
-        ])
-        .build().unwrap();
-
-    // Retry the request if it fails
-    let mut tries = 0;
-    let response = loop {
-        let response = apis::get_openai().chat().create(request.clone()).await;
-        if let Ok(response) = response {
-            break Ok(response);
-        } else {
-            tries += 1;
-            if tries >= 3 {
-                break response;
-            }
-        }
-    };
+    let response = apis::gpt_info_query("gpt-3.5-turbo".to_string(), memory_value, format!("Your answers should be on one line and compact with lists having comma separations\nBased on the given information and only this information, user {query}")).await;
     // Return from errors
     if let Err(_) = response {
         return PluginReturn {
@@ -78,11 +52,8 @@ pub async fn memory_get(search: String, user_id: &String) -> PluginReturn {
             to_user: format!("❌ Memory lookup couldn't find an answer for query {query}"),
         };
     }
-    // TODO log the openai call and response
-    let response: CreateChatCompletionResponse = response.unwrap();
-
     return PluginReturn {
-        result: response.choices.first().unwrap().message.content.clone(),
+        result: response.unwrap(),
         to_user: format!("🧠 Memory lookup ran for query {query}"),
     };
 }
@@ -106,34 +77,8 @@ pub async fn memory_set(search: String, user_id: &String, user_name: &String) ->
         Err(_) => String::new(),
     };
 
-    // Give the memories to gpt to alter with the new memory
-    let request = CreateChatCompletionRequestArgs::default()
-        .model("gpt-4")
-        .messages([
-            ChatCompletionRequestMessageArgs::default()
-                .role(Role::System)
-                .content(memory_value)
-                .build().unwrap(),
-            ChatCompletionRequestMessageArgs::default()
-                .role(Role::User)
-                .content(format!("Rewrite the memory with the new information\n{query}\nReturn the new memory in ; separated list format without spaces"))
-                .build().unwrap(),
-        ])
-        .build().unwrap();
-
-    // Retry the request if it fails
-    let mut tries = 0;
-    let response = loop {
-        let response = apis::get_openai().chat().create(request.clone()).await;
-        if let Ok(response) = response {
-            break Ok(response);
-        } else {
-            tries += 1;
-            if tries >= 3 {
-                break response;
-            }
-        }
-    };
+    // Search with gpt through the memories to answer the query
+    let response = apis::gpt_info_query("gpt-4".to_string(), memory_value, format!("Rewrite the memory with the new information\n{query}\nReturn the new memory in ; separated list format without spaces")).await;
     // Return from errors
     if let Err(_) = response {
         return PluginReturn {
@@ -141,9 +86,7 @@ pub async fn memory_set(search: String, user_id: &String, user_name: &String) ->
             to_user: format!("❌ Memory lookup couldn't find an answer for query {query}"),
         };
     }
-    // TODO log the openai call and response
-    let response: CreateChatCompletionResponse = response.unwrap();
-    let new_memory = response.choices.first().unwrap().message.content.clone();
+    let new_memory = response.unwrap();
     // Write the new memory to memories.toml, user_id not be a valid key, key should be overwritten
     let mut contents = std::fs::read_to_string("memories.toml").unwrap();
     let mut parsed_toml: toml::Value = contents.parse().unwrap();
