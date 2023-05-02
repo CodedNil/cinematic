@@ -1,6 +1,6 @@
 pub mod memories;
 pub mod relevance;
-pub mod sonarr;
+pub mod media;
 pub mod websearch;
 
 use async_openai::Client as OpenAiClient;
@@ -11,7 +11,7 @@ pub fn get_data() -> String {
     data.push_str("You have access to the following plugins:\n\n");
     data.push_str(format!("{}\n", &websearch::get_plugin_data()).as_str());
     data.push_str(format!("{}\n", &memories::get_plugin_data()).as_str());
-    data.push_str(format!("{}\n", &sonarr::get_plugin_data()).as_str());
+    data.push_str(format!("{}\n", &media::get_plugin_data()).as_str());
     data.push_str("\nYou can query a plugin with the syntax [plugin~query]\nFor example [WEB~how far is the moon?]I'm looking this up\nSystem will respond with results [WEB~how far is the moon?~The average distance between the Earth and the Moon is 384,400km]\nAlways use plugins to get or set data when needed, after a plugin is queried write a message to let the user know its being processed, plugin calls should always be first in the message");
     data
 }
@@ -30,7 +30,7 @@ pub async fn get_processing_message(command: &String) -> String {
         "WEB" => websearch::processing_message(args[1].to_string()).await,
         "MEM_GET" => memories::processing_message_get(args[1].to_string()).await,
         "MEM_SET" => memories::processing_message_set(args[1].to_string()).await,
-        "SONARR_LOOKUP" => sonarr::processing_message_lookup(args[1].to_string()).await,
+        "SERIES_LOOKUP" => media::processing_message_series_lookup(args[1].to_string()).await,
         _ => String::from("Unknown command"),
     };
 

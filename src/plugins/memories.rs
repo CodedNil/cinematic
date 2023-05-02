@@ -10,7 +10,10 @@ use crate::plugins::PluginReturn;
 
 // Plugins data
 pub fn get_plugin_data() -> String {
-    "[MEM_GET~key;query]: Looks in users memories for a [key;query], replies with the answered query\n[MEM_SET~key;query]: Updates a users memories with a [key;query]\nValid keys are series (what series they want available), movies (what movies they want available), opinions (if user liked show, their rating etc, store lots here)\nExamples: [MEM_SET~series;wants The Office] will add The Office to the users series wants [MEM_GET~opinions;liked avatar?] [MEM_SET~movies;Rated Iron Man 7/10]".to_string()
+    "[MEM_GET~key;query]: Looks in users memories for a [key;query], replies with the answered query
+[MEM_SET~key;query]: Updates a users memories with a [key;query]
+Valid keys are series (what series they want available), movies (what movies they want available), opinions (if user liked show, their rating etc, store lots here)
+Examples: [MEM_SET~series;wants The Office] will add The Office to the users series wants [MEM_GET~opinions;liked avatar?] [MEM_SET~movies;Rated Iron Man 7/10]".to_string()
 }
 
 /// Get processing message
