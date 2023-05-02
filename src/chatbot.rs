@@ -97,6 +97,8 @@ pub async fn run_chat_completition(
     // Collect commands, and replies in a mutex
     let mut commands: Vec<String> = Vec::new();
     let command_replies_mutex: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    // Extra message history mutex
+    let extra_message_history_mutex: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
     while let Some(result) = stream.next().await {
         // Get the result of this chunk
         match result {
@@ -114,34 +116,28 @@ pub async fn run_chat_completition(
                         // If command is not in commands, add it
                         if !commands.contains(&cap[1].to_string()) {
                             commands.push(cap[1].to_string().clone());
-                            // If it starts with ! it expects results, run the command
-                            if cap[1].starts_with('!') {
-                                // Run in a thread
-                                let openai_client_c = openai_client.clone();
-                                let command_c = cap[1].to_string().clone();
-                                let command_replies_mutex_c = Arc::clone(&command_replies_mutex);
-                                // Push replies into the mutex
-                                tokio::spawn(async move {
-                                    let reply =
-                                        plugins::run_command_result(&openai_client_c, &command_c)
-                                            .await;
-                                    let command_reply = format!("{command_c}~{reply}");
-                                    // Push the command plus reply into the mutex
-                                    let mut command_replies: std::sync::MutexGuard<Vec<String>> =
-                                        command_replies_mutex_c.lock().unwrap();
-                                    command_replies.push(command_reply);
-                                });
-                            } else {
-                                // Run in a thread
-                                let openai_client_c = openai_client.clone();
-                                let command_c = cap[1].to_string().clone();
-                                tokio::spawn(async move {
-                                    plugins::run_command(&openai_client_c, command_c).await;
-                                });
-                                // Push the command into the mutex
-                                let mut command_replies = command_replies_mutex.lock().unwrap();
-                                command_replies.push(cap[1].to_string().clone());
-                            }
+                            // Run in a thread
+                            let openai_client_c = openai_client.clone();
+                            let command_c = cap[1].to_string().clone();
+                            let command_replies_mutex_c = Arc::clone(&command_replies_mutex);
+                            let extra_message_history_mutex_c =
+                                Arc::clone(&extra_message_history_mutex);
+                            // Push replies into the mutex
+                            tokio::spawn(async move {
+                                let reply =
+                                    plugins::run_command(&openai_client_c, &command_c).await;
+                                let command_reply =
+                                    format!("{command_c}~{result}", result = reply.result);
+                                // Push the command plus reply into the mutex
+                                let mut command_replies: std::sync::MutexGuard<Vec<String>> =
+                                    command_replies_mutex_c.lock().unwrap();
+                                command_replies.push(command_reply);
+
+                                // Add the reply to user in the discord message
+                                let mut extra_history: std::sync::MutexGuard<String> =
+                                    extra_message_history_mutex_c.lock().unwrap();
+                                extra_history.push_str(format!("{}\n", reply.to_user).as_str());
+                            });
                         }
                     }
                     // User text is outside [], opened [ that arent closed count everything past them as not user text
@@ -159,11 +155,13 @@ pub async fn run_chat_completition(
                         let ctx_c = ctx.clone();
                         let mut bot_message_c = bot_message.clone();
                         let message_history_text_c = message_history_text.clone();
+                        let extra_history_text_c =
+                            extra_message_history_mutex.lock().unwrap().clone();
                         let user_text_c = user_text.clone();
                         tokio::spawn(async move {
                             bot_message_c
                                 .edit(&ctx_c.http, |msg| {
-                                    msg.content(format!("{message_history_text_c}⌛ {user_text_c}"))
+                                    msg.content(format!("{message_history_text_c}{extra_history_text_c}⌛ {user_text_c}"))
                                 })
                                 .await
                                 .unwrap();
@@ -177,6 +175,17 @@ pub async fn run_chat_completition(
             }
         }
     }
+    // Edit the discord message with the new content
+    let extra_history_text_c = extra_message_history_mutex.lock().unwrap().clone();
+    bot_message
+        .edit(&ctx.http, |msg| {
+            msg.content(format!(
+                "{message_history_text}{extra_history_text_c}✅ {user_text}"
+            ))
+        })
+        .await
+        .unwrap();
+
     // Wait until command replies are same length as commands, or timeout
     let start_time = Local::now();
     while commands.len() != command_replies_mutex.lock().unwrap().len() {
@@ -190,14 +199,15 @@ pub async fn run_chat_completition(
     println!("command_replies: {:?}", command_replies);
 
     // Edit the discord message with the new content
-    if user_text.len() > 0 {
-        bot_message
-            .edit(&ctx.http, |msg| {
-                msg.content(format!("{message_history_text}✅ {user_text}"))
-            })
-            .await
-            .unwrap();
-    }
+    let extra_history_text_c = extra_message_history_mutex.lock().unwrap().clone();
+    bot_message
+        .edit(&ctx.http, |msg| {
+            msg.content(format!(
+                "{message_history_text}{extra_history_text_c}✅ {user_text}"
+            ))
+        })
+        .await
+        .unwrap();
 
     // TODO if there are system returns, process those
 }

@@ -27,19 +27,41 @@ pub struct SearchBrave {
     summary: String,
 }
 
+use crate::plugins::PluginReturn;
+
 // Plugins data
 pub fn get_plugin_data() -> String {
-    "!WEB: Searches websites for a query, replies with the answered query".to_string()
+    "WEB: Searches websites for a query, replies with the answered query".to_string()
 }
 
 pub async fn brave(query: String) -> Result<SearchBrave, Box<dyn Error>> {
-    let response = reqwest::get(format!("https://search.brave.com/search?q={}", query)).await;
-    if !response.is_ok() {
+    let response_search =
+        reqwest::get(format!("https://search.brave.com/search?q={}", query)).await;
+    if !response_search.is_ok() {
         return Err("Failed to fetch brave search".into());
+    }
+    // Get the summarizer text if exists
+    let response_summary = reqwest::get(format!(
+        "https://search.brave.com/api/summarizer?key={}:us:en",
+        query
+    ))
+    .await;
+
+    let mut summary: Option<String> = None;
+    if response_summary.is_ok() {
+        // Get the text as json
+        let json_string = response_summary.unwrap().text().await.unwrap();
+        let json: serde_json::Value = serde_json::from_str(&json_string).unwrap();
+        // If json has ["results"][0]["text"] then use that as the summary
+        if !json["results"][0]["text"].is_null() {
+            let text = json["results"][0]["text"].as_str().unwrap_or("No summary");
+            let regex = Regex::new(r#"<[^>]*>"#).unwrap();
+            summary = Some(regex.replace_all(text, "").to_string());
+        }
     }
 
     // Parse the search results
-    let html_text = response.unwrap().text().await.unwrap();
+    let html_text = response_search.unwrap().text().await.unwrap();
     let document = Html::parse_document(&html_text);
     let selector = Selector::parse(".snippet").unwrap();
 
@@ -108,25 +130,6 @@ pub async fn brave(query: String) -> Result<SearchBrave, Box<dyn Error>> {
         })
         .collect();
 
-    // Get the summarizer text if exists
-    let response = reqwest::get(format!(
-        "https://search.brave.com/api/summarizer?key={}:us:en",
-        query
-    ))
-    .await;
-    let mut summary: Option<String> = None;
-    if response.is_ok() {
-        // Get the text as json
-        let json_string = response.unwrap().text().await.unwrap();
-        let json: serde_json::Value = serde_json::from_str(&json_string).unwrap();
-        // If json has ["results"][0]["text"] then use that as the summary
-        if !json["results"][0]["text"].is_null() {
-            let text = json["results"][0]["text"].as_str().unwrap_or("No summary");
-            let regex = Regex::new(r#"<[^>]*>"#).unwrap();
-            summary = Some(regex.replace_all(text, "").to_string());
-        }
-    }
-
     return Ok(SearchBrave {
         results: brave_organic_search_results,
         summary: summary.unwrap_or_default(),
@@ -134,11 +137,14 @@ pub async fn brave(query: String) -> Result<SearchBrave, Box<dyn Error>> {
 }
 
 /// Perform a search with ai processing to answer a prompt
-pub async fn ai_search(openai_client: &OpenAiClient, query: String) -> String {
+pub async fn ai_search(openai_client: &OpenAiClient, query: String) -> PluginReturn {
     // Get the search results
     let mut search_results: SearchBrave = brave(query.clone()).await.unwrap();
     if search_results.results.is_empty() {
-        return format!("No results found for {}", query);
+        return PluginReturn {
+            result: format!("No results found for {}", query),
+            to_user: format!("❌ No results found for {}", query),
+        };
     }
 
     // Download a larger snippet for the first wikipedia result
@@ -223,10 +229,16 @@ pub async fn ai_search(openai_client: &OpenAiClient, query: String) -> String {
     // Return from errors
     if let Err(error) = response {
         println!("Error: {:?}", error);
-        return "Couldn't find an answer".to_string();
+        return PluginReturn {
+            result: String::from("Couldn't find an answer"),
+            to_user: String::from("❌ Web search, couldn't find an answer"),
+        };
     }
     // TODO log the openai call and response
     let response: CreateChatCompletionResponse = response.unwrap();
 
-    return response.choices.first().unwrap().message.content.clone();
+    return PluginReturn {
+        result: response.choices.first().unwrap().message.content.clone(),
+        to_user: format!("🔍 Web search ran for query {query}"),
+    };
 }
