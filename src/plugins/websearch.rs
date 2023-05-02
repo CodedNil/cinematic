@@ -31,7 +31,7 @@ use crate::plugins::PluginReturn;
 
 // Plugins data
 pub fn get_plugin_data() -> String {
-    "WEB: Searches websites for a query, replies with the answered query, should only be one query per command".to_string()
+    "[WEB~query]: Searches websites for a query, replies with the answered query, should only be one query per command".to_string()
 }
 
 async fn brave(query: String) -> Result<SearchBrave, Box<dyn Error>> {
