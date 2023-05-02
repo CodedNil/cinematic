@@ -18,6 +18,10 @@ async fn main() {
         .expect("Failed to read credentials file");
     let cred: Value = contents.parse().expect("Failed to parse credentials TOML");
 
+    let lookup = plugins::media::media_lookup("Iron Man,Stargate,Antman 2;title".to_string()).await;
+    println!("{:?}", lookup);
+    return;
+
     // Configure the client with your Discord bot token
     let discord_token: String = cred["discord_token"]
         .as_str()
