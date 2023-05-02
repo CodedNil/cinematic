@@ -45,7 +45,7 @@ pub async fn run_command(
 
     let result: PluginReturn = match args[0] {
         "WEB" => websearch::ai_search(&openai_client, args[1].to_string()).await,
-        "MEM_GET" => memories::memory_get(&openai_client, args[1].to_string(), user_id, user_name).await,
+        "MEM_GET" => memories::memory_get(&openai_client, args[1].to_string(), user_id).await,
         "MEM_SET" => memories::memory_set(&openai_client, args[1].to_string(), user_id, user_name).await,
         _ => PluginReturn {
             result: String::from("Unknown command"),

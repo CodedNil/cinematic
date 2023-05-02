@@ -232,7 +232,7 @@ pub async fn ai_search(openai_client: &OpenAiClient, query: String) -> PluginRet
         }
     };
     // Return from errors
-    if let Err(error) = response {
+    if let Err(_) = response {
         return PluginReturn {
             result: String::from("Couldn't find an answer"),
             to_user: format!("❌ Web search, couldn't find an answer for query {query}"),

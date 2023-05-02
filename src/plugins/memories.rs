@@ -1,7 +1,3 @@
-use std::fs::OpenOptions;
-use std::io::prelude::*;
-use std::path::Path;
-
 use async_openai::{
     types::{
         ChatCompletionRequestMessageArgs, CreateChatCompletionRequestArgs,
@@ -30,7 +26,6 @@ pub async fn memory_get(
     openai_client: &OpenAiClient,
     search: String,
     user_id: &String,
-    user_name: &String,
 ) -> PluginReturn {
     // Get the key and query
     let (key, query) = match search.split_once(";") {
@@ -81,7 +76,7 @@ pub async fn memory_get(
         }
     };
     // Return from errors
-    if let Err(error) = response {
+    if let Err(_) = response {
         return PluginReturn {
             result: String::from("Couldn't find an answer"),
             to_user: format!("❌ Memory lookup couldn't find an answer for query {query}"),
