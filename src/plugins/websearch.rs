@@ -14,7 +14,7 @@ use async_openai::{
 };
 
 #[derive(Serialize, Debug)]
-pub struct SearchResultBrave {
+struct SearchResultBrave {
     title: String,
     link: String,
     snippet: String,
@@ -22,7 +22,7 @@ pub struct SearchResultBrave {
     published: String,
 }
 #[derive(Serialize, Debug)]
-pub struct SearchBrave {
+struct SearchBrave {
     results: Vec<SearchResultBrave>,
     summary: String,
 }
@@ -31,10 +31,10 @@ use crate::plugins::PluginReturn;
 
 // Plugins data
 pub fn get_plugin_data() -> String {
-    "WEB: Searches websites for a query, replies with the answered query".to_string()
+    "WEB: Searches websites for a query, replies with the answered query, should only be one query per command".to_string()
 }
 
-pub async fn brave(query: String) -> Result<SearchBrave, Box<dyn Error>> {
+async fn brave(query: String) -> Result<SearchBrave, Box<dyn Error>> {
     let response_search =
         reqwest::get(format!("https://search.brave.com/search?q={}", query)).await;
     if !response_search.is_ok() {
@@ -203,7 +203,7 @@ pub async fn ai_search(openai_client: &OpenAiClient, query: String) -> PluginRet
         }
     }
 
-    // Search with gpt through the example prompts for relevant ones
+    // Search with gpt through the blob to answer the query
     let request = CreateChatCompletionRequestArgs::default()
         .model("gpt-3.5-turbo")
         .messages([
@@ -233,7 +233,6 @@ pub async fn ai_search(openai_client: &OpenAiClient, query: String) -> PluginRet
     };
     // Return from errors
     if let Err(error) = response {
-        println!("Error: {:?}", error);
         return PluginReturn {
             result: String::from("Couldn't find an answer"),
             to_user: format!("❌ Web search, couldn't find an answer for query {query}"),

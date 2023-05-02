@@ -150,7 +150,7 @@ impl EventHandler for Handler {
         let bot_message = msg
             .reply(
                 &ctx.http,
-                format!("{message_history_text}⌛ 1/3 {reply_text}"),
+                format!("{message_history_text}⌛ 1/2 {reply_text}"),
             )
             .await
             .expect("Failed to send message");

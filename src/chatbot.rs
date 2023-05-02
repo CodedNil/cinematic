@@ -30,7 +30,9 @@ pub async fn chat_completition_step(
     message_history_text: String,                    // The message history text
     chat_query: Vec<ChatCompletionRequestMessage>,   // The chat query to send to openai
     extra_message_history_mutex: Arc<Mutex<String>>, // The extra message history mutex
-) -> Vec<String> {
+    user_id: String,                                 // The user id
+    user_name: String,                               // The user name
+) -> (Vec<String>, String) {
     // Create the openai request
     let request = CreateChatCompletionRequestArgs::default()
         .model("gpt-4")
@@ -70,6 +72,8 @@ pub async fn chat_completition_step(
                             let command_replies_mutex_c = Arc::clone(&command_replies_mutex);
                             let extra_message_history_mutex_c =
                                 Arc::clone(&extra_message_history_mutex);
+                            let user_id = user_id.clone();
+                            let user_name = user_name.clone();
                             // Push replies into the mutex
                             tokio::spawn(async move {
                                 // Add the processing message in the discord message
@@ -79,8 +83,13 @@ pub async fn chat_completition_step(
                                     .unwrap()
                                     .push_str(format!("{processing}\n").as_str());
 
-                                let reply =
-                                    plugins::run_command(&openai_client_c, &command_c).await;
+                                let reply = plugins::run_command(
+                                    &openai_client_c,
+                                    &command_c,
+                                    &user_id,
+                                    &user_name,
+                                )
+                                .await;
                                 let command_reply =
                                     format!("{command_c}~{result}", result = reply.result);
                                 // Push the command plus reply into the mutex
@@ -88,11 +97,13 @@ pub async fn chat_completition_step(
                                     command_replies_mutex_c.lock().unwrap();
                                 command_replies.push(command_reply);
 
+                                // Remove processing message, {processing}\n with replace
+                                let mut history = extra_message_history_mutex_c.lock().unwrap();
+                                let range =
+                                    history.rfind(format!("{processing}\n").as_str()).unwrap()..;
+                                history.replace_range(range, "");
                                 // Add the reply to user in the discord message
-                                extra_message_history_mutex_c
-                                    .lock()
-                                    .unwrap()
-                                    .push_str(format!("{}\n", reply.to_user).as_str());
+                                history.push_str(format!("{}\n", reply.to_user).as_str());
                             });
                         }
                     }
@@ -164,7 +175,7 @@ pub async fn chat_completition_step(
         .await
         .unwrap();
 
-    return command_replies;
+    return (command_replies, user_text);
 }
 
 /// Run the chat completition
@@ -174,6 +185,8 @@ pub async fn run_chat_completition(
     bot_message: DiscordMessage,  // The reply to the user
     message_history_text: String, // The message history text
     users_text: String,           // The users text
+    user_id: String,              // The user id
+    user_name: String,            // The user name
 ) {
     // Get current date and time in DD/MM/YYYY and HH:MM:SS format
     let date = Local::now().format("%d/%m/%Y").to_string();
@@ -231,13 +244,15 @@ pub async fn run_chat_completition(
     let mut iteration = 0;
     let max_iterations = 5;
     while iteration < max_iterations {
-        let command_results = chat_completition_step(
+        let (command_results, user_text) = chat_completition_step(
             openai_client,
             ctx.clone(),
             bot_message.clone(),
             message_history_text.clone(),
             chat_query.clone(),
             extra_message_history_mutex.clone(),
+            user_id.clone(),
+            user_name.clone(),
         )
         .await;
 
@@ -263,6 +278,7 @@ pub async fn run_chat_completition(
         for result in &command_results.clone() {
             commands.push_str(format!("[{}]", result).as_str());
         }
+        commands.push_str(user_text.as_str());
         // Add system message with results
         chat_query.push(
             ChatCompletionRequestMessageArgs::default()
@@ -310,18 +326,10 @@ pub async fn process_chat(
     //     return;
     // }
 
-    // // Edit the bot_message to let the user know the message is valid and it is progressing
-    // bot_message
-    //     .edit(&ctx.http, |msg| {
-    //         msg.content(format!("{message_history_text}⌛ 2/3 {reply_text}"))
-    //     })
-    //     .await
-    //     .unwrap();
-
     // Edit the bot_message to let the user know it is progressing
     bot_message
         .edit(&ctx.http, |msg| {
-            msg.content(format!("{message_history_text}⌛ 3/3 {reply_text}"))
+            msg.content(format!("{message_history_text}⌛ 2/2 {reply_text}"))
         })
         .await
         .unwrap();
@@ -333,6 +341,8 @@ pub async fn process_chat(
         bot_message,
         message_history_text,
         user_text,
+        user_id,
+        user_name,
     )
     .await;
 }
