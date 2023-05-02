@@ -1,6 +1,6 @@
+pub mod media;
 pub mod memories;
 pub mod relevance;
-pub mod media;
 pub mod websearch;
 
 use async_openai::Client as OpenAiClient;
@@ -30,7 +30,7 @@ pub async fn get_processing_message(command: &String) -> String {
         "WEB" => websearch::processing_message(args[1].to_string()).await,
         "MEM_GET" => memories::processing_message_get(args[1].to_string()).await,
         "MEM_SET" => memories::processing_message_set(args[1].to_string()).await,
-        "SERIES_LOOKUP" => media::processing_message_series_lookup(args[1].to_string()).await,
+        "MEDIA_LOOKUP" => media::processing_message_lookup(args[1].to_string()).await,
         _ => String::from("Unknown command"),
     };
 

@@ -156,7 +156,7 @@ pub async fn chat_completition_step(
     // Wait until command replies are same length as commands, or timeout
     let start_time = Local::now();
     while commands.len() != command_replies_mutex.lock().unwrap().len() {
-        if Local::now().timestamp_millis() > start_time.timestamp_millis() + 10000 {
+        if Local::now().timestamp_millis() > start_time.timestamp_millis() + 30000 {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
