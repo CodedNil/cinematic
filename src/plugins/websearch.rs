@@ -136,14 +136,19 @@ pub async fn brave(query: String) -> Result<SearchBrave, Box<dyn Error>> {
     });
 }
 
+/// Get processing message
+pub async fn processing_message(query: String) -> String {
+    return format!("🔍 Web search running for query {query}");
+}
+
 /// Perform a search with ai processing to answer a prompt
 pub async fn ai_search(openai_client: &OpenAiClient, query: String) -> PluginReturn {
     // Get the search results
     let mut search_results: SearchBrave = brave(query.clone()).await.unwrap();
     if search_results.results.is_empty() {
         return PluginReturn {
-            result: format!("No results found for {}", query),
-            to_user: format!("❌ No results found for {}", query),
+            result: format!("No results found"),
+            to_user: format!("❌ No results found for web search {}", query),
         };
     }
 
@@ -231,7 +236,7 @@ pub async fn ai_search(openai_client: &OpenAiClient, query: String) -> PluginRet
         println!("Error: {:?}", error);
         return PluginReturn {
             result: String::from("Couldn't find an answer"),
-            to_user: String::from("❌ Web search, couldn't find an answer"),
+            to_user: format!("❌ Web search, couldn't find an answer for query {query}"),
         };
     }
     // TODO log the openai call and response

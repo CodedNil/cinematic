@@ -18,6 +18,18 @@ pub struct PluginReturn {
     pub to_user: String,
 }
 
+/// Get command processing message
+pub async fn get_processing_message(command: &String) -> String {
+    let args = command.split('~').collect::<Vec<&str>>();
+
+    let result: String = match args[0] {
+        "WEB" => websearch::processing_message(args[1].to_string()).await,
+        _ => String::from("Unknown command"),
+    };
+
+    return result;
+}
+
 /// Run a command with a result
 pub async fn run_command(openai_client: &OpenAiClient, command: &String) -> PluginReturn {
     let args = command.split('~').collect::<Vec<&str>>();
