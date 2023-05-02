@@ -1,8 +1,3 @@
-use async_openai::types::{
-    ChatCompletionRequestMessageArgs, CreateChatCompletionRequestArgs,
-    CreateChatCompletionResponse, Role,
-};
-
 use crate::{apis, plugins::PluginReturn};
 
 // Plugins data

@@ -5,11 +5,6 @@ use serde::Serialize;
 use serde_json;
 use std::error::Error;
 
-use async_openai::types::{
-    ChatCompletionRequestMessageArgs, CreateChatCompletionRequestArgs,
-    CreateChatCompletionResponse, Role,
-};
-
 #[derive(Serialize, Debug)]
 struct SearchResultBrave {
     title: String,
@@ -202,33 +197,7 @@ pub async fn ai_search(query: String) -> PluginReturn {
     }
 
     // Search with gpt through the blob to answer the query
-    let request = CreateChatCompletionRequestArgs::default()
-        .model("gpt-3.5-turbo")
-        .messages([
-            ChatCompletionRequestMessageArgs::default()
-                .role(Role::System)
-                .content(blob)
-                .build().unwrap(),
-            ChatCompletionRequestMessageArgs::default()
-                .role(Role::User)
-                .content(format!("Your answers should be on one line and compact with lists having comma separations, recently published articles should get priority\nBased on the given information and only this information, {query}"))
-                .build().unwrap(),
-        ])
-        .build().unwrap();
-
-    // Retry the request if it fails
-    let mut tries = 0;
-    let response = loop {
-        let response = apis::get_openai().chat().create(request.clone()).await;
-        if let Ok(response) = response {
-            break Ok(response);
-        } else {
-            tries += 1;
-            if tries >= 3 {
-                break response;
-            }
-        }
-    };
+    let response = apis::gpt_info_query("gpt-3.5-turbo".to_string(), blob, format!("Your answers should be on one line and compact with lists having comma separations, recently published articles should get priority\nBased on the given information and only this information, {query}")).await;
     // Return from errors
     if let Err(_) = response {
         return PluginReturn {
@@ -236,11 +205,9 @@ pub async fn ai_search(query: String) -> PluginReturn {
             to_user: format!("❌ Web search, couldn't find an answer for query {query}"),
         };
     }
-    // TODO log the openai call and response
-    let response: CreateChatCompletionResponse = response.unwrap();
 
     return PluginReturn {
-        result: response.choices.first().unwrap().message.content.clone(),
+        result: response.unwrap(),
         to_user: format!("🔍 Web search ran for query {query}"),
     };
 }
