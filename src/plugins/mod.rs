@@ -28,7 +28,7 @@ pub async fn get_processing_message(command: &String) -> String {
         "WEB" => websearch::processing_message(args[1].to_string()).await,
         "MEM_GET" => memories::processing_message_get(args[1].to_string()).await,
         "MEM_SET" => memories::processing_message_set(args[1].to_string()).await,
-        "MEDIA_LOOKUP" => media::processing_message_lookup(args[1].to_string()).await,
+        "MOVIE_LOOKUP" => media::processing_message_lookup(args[1].to_string()).await,
         _ => String::from("Unknown command"),
     };
 
@@ -44,6 +44,7 @@ pub async fn run_command(command: &String, user_id: &String, user_name: &String)
         "WEB" => websearch::ai_search(args[1].to_string()).await,
         "MEM_GET" => memories::memory_get(args[1].to_string(), user_id).await,
         "MEM_SET" => memories::memory_set(args[1].to_string(), user_id, user_name).await,
+        "MOVIE_LOOKUP" => media::movie_lookup(args[1].to_string()).await,
         _ => PluginReturn {
             result: String::from("Unknown command"),
             to_user: String::from("Attempted invalid command"),
