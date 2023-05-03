@@ -32,7 +32,11 @@ If user is asking for example \"what mcu movies are on\" then you must do a [WEB
 
 /// Get processing message
 pub async fn processing_message_lookup(query: String) -> String {
-    return format!("🎬 Looking up media with query {query}");
+    return format!("🎬 Looking up media {query}");
+}
+
+pub async fn processing_message_add(query: String) -> String {
+    return format!("🎬 Adding media {query}");
 }
 
 /// Perform a lookup of movies with ai processing to answer a prompt

@@ -78,7 +78,6 @@ pub async fn gpt_info_query(model: String, data: String, prompt: String) -> Resu
     let mut tries = 0;
     let response = loop {
         let response = openai.chat().create(request.clone()).await;
-        // TODO log the openai call and response
         if let Ok(response) = response {
             break Ok(response);
         } else {

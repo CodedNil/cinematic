@@ -49,7 +49,7 @@ pub async fn memory_get(search: String, user_id: &String) -> PluginReturn {
     }
     return PluginReturn {
         result: response.unwrap(),
-        to_user: format!("🧠 Memory lookup ran for query {query}"),
+        to_user: format!("🧠 Memory lookup ran for query {search}"),
     };
 }
 
@@ -78,7 +78,7 @@ pub async fn memory_set(search: String, user_id: &String, user_name: &String) ->
     if let Err(_) = response {
         return PluginReturn {
             result: String::from("Couldn't find an answer"),
-            to_user: format!("❌ Memory lookup couldn't find an answer for query {query}"),
+            to_user: format!("❌ Memory lookup couldn't find an answer for query {search}"),
         };
     }
     let new_memory = response.unwrap();
@@ -97,7 +97,7 @@ pub async fn memory_set(search: String, user_id: &String, user_name: &String) ->
 
     return PluginReturn {
         result: String::from("Users memory was set successfully with the query"),
-        to_user: format!("🧠 Memory set with query {query}"),
+        to_user: format!("🧠 Memory set with query {search}"),
     };
 }
 

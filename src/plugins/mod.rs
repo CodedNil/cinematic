@@ -30,7 +30,9 @@ pub async fn get_processing_message(command: &String) -> String {
         "MEM_SET" => memories::processing_message_set(args[1].to_string()).await,
         "MOVIE_LOOKUP" => media::processing_message_lookup(args[1].to_string()).await,
         "SERIES_LOOKUP" => media::processing_message_lookup(args[1].to_string()).await,
-        _ => String::from("Unknown command"),
+        "MOVIE_ADD" => media::processing_message_add(args[1].to_string()).await,
+        "SERIES_ADD" => media::processing_message_add(args[1].to_string()).await,
+        _ => String::from("❌ Unknown command"),
     };
 
     return result;
@@ -51,7 +53,7 @@ pub async fn run_command(command: &String, user_id: &String, user_name: &String)
         "SERIES_ADD" => media::media_add(media::MediaType::Series, args[1].to_string()).await,
         _ => PluginReturn {
             result: String::from("Unknown command"),
-            to_user: String::from("Attempted invalid command"),
+            to_user: String::from("❌ Attempted invalid command"),
         },
     };
     println!("Command result: {:?}", result);
