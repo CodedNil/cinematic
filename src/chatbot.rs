@@ -134,7 +134,7 @@ pub async fn chat_completition_step(
     bot_message
         .edit(&ctx.http, |msg| {
             msg.content(format!(
-                "{message_history_text}{extra_history_text_c}✅ {user_text}"
+                "{message_history_text}{extra_history_text_c}⌛ {user_text}"
             ))
         })
         .await
@@ -156,7 +156,7 @@ pub async fn chat_completition_step(
     bot_message
         .edit(&ctx.http, |msg| {
             msg.content(format!(
-                "{message_history_text}{extra_history_text_c}✅ {user_text}"
+                "{message_history_text}{extra_history_text_c}⌛ {user_text}"
             ))
         })
         .await
@@ -167,12 +167,12 @@ pub async fn chat_completition_step(
 
 /// Run the chat completition
 pub async fn run_chat_completition(
-    ctx: DiscordContext,          // The discord context
-    bot_message: DiscordMessage,  // The reply to the user
-    message_history_text: String, // The message history text
-    users_text: String,           // The users text
-    user_id: String,              // The user id
-    user_name: String,            // The user name
+    ctx: DiscordContext,             // The discord context
+    mut bot_message: DiscordMessage, // The reply to the user
+    message_history_text: String,    // The message history text
+    users_text: String,              // The users text
+    user_id: String,                 // The user id
+    user_name: String,               // The user name
 ) {
     // Get current date and time in DD/MM/YYYY and HH:MM:SS format
     let date = Local::now().format("%d/%m/%Y").to_string();
@@ -229,6 +229,7 @@ pub async fn run_chat_completition(
     // Process the chat with running commands until either no data lookups left, or max iterations reached
     let mut iteration = 0;
     let max_iterations = 5;
+    let mut latest_user_text = String::new();
     while iteration < max_iterations {
         let (command_results, user_text) = chat_completition_step(
             ctx.clone(),
@@ -240,6 +241,9 @@ pub async fn run_chat_completition(
             user_name.clone(),
         )
         .await;
+        if !user_text.is_empty() {
+            latest_user_text = user_text.clone();
+        }
 
         // Check if there are any command returns with outputs
         let mut has_output = false;
@@ -276,6 +280,16 @@ pub async fn run_chat_completition(
         // Increment the iteration counter
         iteration += 1;
     }
+    // Edit the discord message finalised
+    let extra_history_text_c = extra_message_history_mutex.lock().unwrap().clone();
+    bot_message
+        .edit(&ctx.http, |msg| {
+            msg.content(format!(
+                "{message_history_text}{extra_history_text_c}✅ {latest_user_text}"
+            ))
+        })
+        .await
+        .unwrap();
 }
 
 /// Process the chat message from the user

@@ -73,7 +73,7 @@ pub async fn memory_set(search: String, user_id: &String, user_name: &String) ->
     };
 
     // Search with gpt through the memories to answer the query
-    let response = apis::gpt_info_query("gpt-4".to_string(), memory_value, format!("Rewrite the memory with the new information\n{query}\nReturn the new memory in ; separated list format without spaces")).await;
+    let response = apis::gpt_info_query("gpt-4".to_string(), memory_value, format!("Rewrite the memory with the new information\n{query}\nReturn the new memory in ; separated list format")).await;
     // Return from errors
     if let Err(_) = response {
         return PluginReturn {

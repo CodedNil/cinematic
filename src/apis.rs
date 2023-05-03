@@ -1,12 +1,13 @@
+use reqwest::Method;
 use std::fs::File;
 use std::io::prelude::*;
 
 use async_openai::types::{
-    ChatCompletionRequestMessageArgs, CreateChatCompletionRequestArgs,
-    CreateChatCompletionResponse, Role,
+    ChatCompletionRequestMessageArgs, CreateChatCompletionRequestArgs, Role,
 };
 use async_openai::Client as OpenAiClient;
 
+#[derive(Clone)]
 pub enum ArrService {
     Sonarr,
     Radarr,
@@ -19,6 +20,15 @@ impl std::fmt::Display for ArrService {
         }
     }
 }
+
+#[derive(Debug)]
+pub enum HttpMethod {
+    Get,
+    Post,
+    Put,
+    Delete,
+}
+
 fn get_credentials() -> toml::Value {
     // Read credentials.toml file to get keys
     let mut file = File::open("credentials.toml").expect("Failed to open credentials file");
@@ -93,8 +103,13 @@ pub async fn gpt_info_query(model: String, data: String, prompt: String) -> Resu
     return Ok(result);
 }
 
-/// Run arr request, get or post etc, then url ending like /api/v3/series/lookup?term=stargate
-pub async fn arr_get(service: ArrService, url: String) -> serde_json::Value {
+/// Make a request to an arr service
+pub async fn arr_request(
+    method: HttpMethod,
+    service: ArrService,
+    url: String,
+    data: Option<String>,
+) -> serde_json::Value {
     let cred = get_credentials();
     let arr = cred[&service.to_string()]
         .as_table()
@@ -117,10 +132,26 @@ pub async fn arr_get(service: ArrService, url: String) -> serde_json::Value {
         .to_string();
 
     let client = reqwest::Client::new();
-    let res = client
-        .get(format!("{}{}", arr_url, url))
+    let req = client
+        .request(
+            match method {
+                HttpMethod::Get => Method::GET,
+                HttpMethod::Post => Method::POST,
+                HttpMethod::Put => Method::PUT,
+                HttpMethod::Delete => Method::DELETE,
+            },
+            format!("{}{}", arr_url, url),
+        )
         .basic_auth(username, Some(password))
-        .header("X-Api-Key", arr_api_key)
+        .header("X-Api-Key", arr_api_key);
+
+    let req = if let Some(data) = data {
+        req.header("Content-Type", "application/json").body(data)
+    } else {
+        req
+    };
+
+    let res = req
         .send()
         .await
         .expect("Failed to send request")
