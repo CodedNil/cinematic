@@ -38,6 +38,9 @@ impl EventHandler for Handler {
                 return;
             }
         } else {
+            if msg.content.starts_with("!") {
+                return;
+            }
             match msg.mentions_me(&ctx.http).await {
                 Ok(is_mentioned) => {
                     if !is_mentioned {
