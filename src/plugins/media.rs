@@ -27,9 +27,9 @@ pub fn get_plugin_data() -> String {
 [SERIES_SETRES~id;quality] Uses sonarr id
 tmdbId and tvdbId can be found from the lookup commands, ask for it such as [SERIES_LOOKUP~whats game of thrones tvdbId?]
 If user wants to remove a series, set the memory that they dont want it [MEM_SET~series;doesnt want The Office]
-If user is asking for example \"what mcu movies are on\" then you must do a [WEB~all mcu movies with release date] first to get list of mcu movies, then lookup each in a format like this [MOVIE_LOOKUP~Are these movies on Iron Man 1,Thor 1,Black Widow,...]".to_string()
+If user is asking for example \"what mcu movies are on\" then you must do a [WEB~all mcu movies with release date] first to get list of mcu movies, then lookup each in a format like this [MOVIE_LOOKUP~Are these movies on Iron Man 1,Thor 1,Black Widow,...]
+If user queries \"how  many gbs do my added movies take up\" look up the memories of what movies the user has added, then lookup on the server to get file size of each".to_string()
 }
-// Get size of movies, series, per user or total
 
 /// Get processing message
 pub async fn processing_message_lookup(query: String) -> String {
