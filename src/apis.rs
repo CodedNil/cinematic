@@ -37,7 +37,7 @@ fn get_credentials() -> toml::Value {
         .expect("Failed to read credentials file");
     let cred: toml::Value = contents.parse().expect("Failed to parse credentials TOML");
 
-    return cred;
+    cred
 }
 
 /// Get openai client
@@ -88,7 +88,7 @@ pub async fn gpt_info_query(model: String, data: String, prompt: String) -> Resu
         }
     };
     // Return from errors
-    if let Err(_) = response {
+    if response.is_err() {
         return Err("Failed to get response from openai".to_string());
     }
     let result = response
@@ -99,7 +99,7 @@ pub async fn gpt_info_query(model: String, data: String, prompt: String) -> Resu
         .message
         .content
         .clone();
-    return Ok(result);
+    Ok(result)
 }
 
 /// Make a request to an arr service

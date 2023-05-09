@@ -162,7 +162,7 @@ pub async fn chat_completition_step(
         .await
         .unwrap();
 
-    return (command_replies, user_text);
+    (command_replies, user_text)
 }
 
 /// Run the chat completition
@@ -197,7 +197,7 @@ pub async fn run_chat_completition(
     // Add message history minus the most recent line
     let mut just_history = message_history_text[..message_history_text.len() - 1].to_string();
     // If it contains a \n then it has history
-    if just_history.contains("\n") {
+    if just_history.contains('\n') {
         // Remove the last line
         just_history =
             just_history[..just_history.rfind('\n').unwrap_or(just_history.len())].to_string();
@@ -249,7 +249,7 @@ pub async fn run_chat_completition(
         let mut has_output = false;
         for result in &command_results {
             // If there is any text after the second ~ then there is output
-            let parts: Vec<&str> = result.split("~").collect();
+            let parts: Vec<&str> = result.split('~').collect();
             if parts.len() > 2 {
                 has_output = true;
                 break;
@@ -312,17 +312,17 @@ pub async fn process_chat(
     // Add the users latest message
     user_text_total.push_str(&user_text);
 
-    // // Don't reply to non media queries, compare user_text_total with the ai model
-    // if !plugins::relevance::check_relevance(user_text_total.clone()).await {
-    //     // Edit the message to let the user know the message is not valid
-    //     bot_message
-    //         .edit(&ctx.http, |msg: &mut serenity::builder::EditMessage| {
-    //             msg.content(format!("{message_history_text}❌ Hi, I'm a media bot. I can help you with media related questions. What would you like to know or achieve?"))
-    //         })
-    //         .await
-    //         .unwrap();
-    //     return;
-    // }
+    // Don't reply to non media queries, compare user_text_total with the ai model
+    if !plugins::relevance::check_relevance(user_text_total.clone()).await {
+        // Edit the message to let the user know the message is not valid
+        bot_message
+            .edit(&ctx.http, |msg: &mut serenity::builder::EditMessage| {
+                msg.content(format!("{message_history_text}❌ Hi, I'm a media bot. I can help you with media related questions. What would you like to know or achieve?"))
+            })
+            .await
+            .unwrap();
+        return;
+    }
 
     // Edit the bot_message to let the user know it is progressing
     bot_message

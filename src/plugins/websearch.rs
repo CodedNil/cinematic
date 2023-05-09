@@ -30,7 +30,7 @@ Example: [WEB~who is the main actor in iron man]".to_string()
 async fn brave(query: String) -> Result<SearchBrave, Box<dyn Error>> {
     let response_search =
         reqwest::get(format!("https://search.brave.com/search?q={}", query)).await;
-    if !response_search.is_ok() {
+    if response_search.is_err() {
         return Err("Failed to fetch brave search".into());
     }
     // Get the summarizer text if exists
@@ -108,7 +108,7 @@ async fn brave(query: String) -> Result<SearchBrave, Box<dyn Error>> {
                 .next()
                 .map(|el| el.text().collect::<String>())
                 .unwrap_or_default()
-                .replace("\n", "")
+                .replace('\n', "")
                 .split_whitespace()
                 .collect::<Vec<_>>()
                 .join(" ");
@@ -123,15 +123,15 @@ async fn brave(query: String) -> Result<SearchBrave, Box<dyn Error>> {
         })
         .collect();
 
-    return Ok(SearchBrave {
+    Ok(SearchBrave {
         results: brave_organic_search_results,
         summary: summary.unwrap_or_default(),
-    });
+    })
 }
 
 /// Get processing message
 pub async fn processing_message(query: String) -> String {
-    return format!("🔍 Web search running for query {query}");
+    format!("🔍 Web search running for query {query}")
 }
 
 /// Perform a search with ai processing to answer a prompt
@@ -140,7 +140,7 @@ pub async fn ai_search(query: String) -> PluginReturn {
     let mut search_results: SearchBrave = brave(query.clone()).await.unwrap();
     if search_results.results.is_empty() {
         return PluginReturn {
-            result: format!("No results found"),
+            result: "No results found".to_string(),
             to_user: format!("❌ No results found for web search {}", query),
         };
     }
@@ -151,7 +151,7 @@ pub async fn ai_search(query: String) -> PluginReturn {
             // Swap link for wiki rest api
             let new_link = format!(
                 "https://en.wikipedia.org/api/rest_v1/page/html/{}",
-                result.link.split("/").last().unwrap()
+                result.link.split('/').last().unwrap()
             );
             let response = reqwest::get(new_link).await;
             if response.is_ok() {
@@ -199,15 +199,15 @@ pub async fn ai_search(query: String) -> PluginReturn {
     // Search with gpt through the blob to answer the query
     let response = apis::gpt_info_query("gpt-3.5-turbo".to_string(), blob, format!("Your answers should be on one line and compact with lists having comma separations, recently published articles should get priority\nBased on the given information and only this information, {query}")).await;
     // Return from errors
-    if let Err(_) = response {
+    if response.is_err() {
         return PluginReturn {
             result: String::from("Couldn't find an answer"),
             to_user: format!("❌ Web search, couldn't find an answer for query {query}"),
         };
     }
 
-    return PluginReturn {
+    PluginReturn {
         result: response.unwrap(),
         to_user: format!("🔍 Web search ran for query {query}"),
-    };
+    }
 }

@@ -21,7 +21,7 @@ pub struct PluginReturn {
 }
 
 /// Get command processing message
-pub async fn get_processing_message(command: &String) -> String {
+pub async fn get_processing_message(command: &str) -> String {
     let args = command.split('~').collect::<Vec<&str>>();
 
     let result: String = match args[0] {
@@ -37,11 +37,11 @@ pub async fn get_processing_message(command: &String) -> String {
         _ => String::from("❌ Unknown command"),
     };
 
-    return result;
+    result
 }
 
 /// Run a command with a result
-pub async fn run_command(command: &String, user_id: &String, user_name: &String) -> PluginReturn {
+pub async fn run_command(command: &str, user_id: &String, user_name: &str) -> PluginReturn {
     let args = command.split('~').collect::<Vec<&str>>();
     println!("Running command: {:?}", args);
 
@@ -62,5 +62,5 @@ pub async fn run_command(command: &String, user_id: &String, user_name: &String)
     };
     println!("Command result: {:?}", result);
 
-    return result;
+    result
 }

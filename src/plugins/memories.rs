@@ -10,16 +10,16 @@ Examples: [MEM_SET~series;wants The Office] will add The Office to the users ser
 
 /// Get processing message
 pub async fn processing_message_get(query: String) -> String {
-    return format!("🧠 Looking in memories for query {query}");
+    format!("🧠 Looking in memories for query {query}")
 }
 pub async fn processing_message_set(query: String) -> String {
-    return format!("🧠 Settings memories for query {query}");
+    format!("🧠 Settings memories for query {query}")
 }
 
 /// Perform a search with ai processing to answer a prompt
 pub async fn memory_get(search: String, user_id: &String) -> PluginReturn {
     // Get the key and query
-    let (key, query) = match search.split_once(";") {
+    let (key, query) = match search.split_once(';') {
         Some((key, query)) => (key, query),
         None => {
             return PluginReturn {
@@ -30,7 +30,7 @@ pub async fn memory_get(search: String, user_id: &String) -> PluginReturn {
     };
     // Read memories.toml, parse it to toml::Value, then get the memories of the user_id, then get the key within that
     let memory_value = match get_memory_key(user_id, key) {
-        Ok(value) => value.clone(),
+        Ok(value) => value,
         Err(error) => {
             return PluginReturn {
                 result: error.to_string(),
@@ -41,22 +41,22 @@ pub async fn memory_get(search: String, user_id: &String) -> PluginReturn {
     // Search with gpt through the memories to answer the query
     let response = apis::gpt_info_query("gpt-3.5-turbo".to_string(), memory_value, format!("Your answers should be on one line and compact with lists having comma separations\nBased on the given information and only this information, user {query}")).await;
     // Return from errors
-    if let Err(_) = response {
+    if response.is_err() {
         return PluginReturn {
             result: String::from("Couldn't find an answer"),
             to_user: format!("❌ Memory lookup couldn't find an answer for query {query}"),
         };
     }
-    return PluginReturn {
+    PluginReturn {
         result: response.unwrap(),
         to_user: format!("🧠 Memory lookup ran for query {search}"),
-    };
+    }
 }
 
 /// Use ai processing to set a memory, remove or add to existing
-pub async fn memory_set(search: String, user_id: &String, user_name: &String) -> PluginReturn {
+pub async fn memory_set(search: String, user_id: &String, user_name: &str) -> PluginReturn {
     // Get the key and query
-    let (key, query) = match search.split_once(";") {
+    let (key, query) = match search.split_once(';') {
         Some((key, query)) => (key, query),
         None => {
             return PluginReturn {
@@ -68,14 +68,14 @@ pub async fn memory_set(search: String, user_id: &String, user_name: &String) ->
 
     // Read memories.toml, parse it to toml::Value, then get the memories of the user_id, then get the key within that
     let memory_value = match get_memory_key(user_id, key) {
-        Ok(value) => value.clone(),
+        Ok(value) => value,
         Err(_) => String::new(),
     };
 
     // Search with gpt through the memories to answer the query
     let response = apis::gpt_info_query("gpt-4".to_string(), memory_value, format!("Rewrite the memory with the new information\n{query}\nReturn the new memory in ; separated list format")).await;
     // Return from errors
-    if let Err(_) = response {
+    if response.is_err() {
         return PluginReturn {
             result: String::from("Couldn't find an answer"),
             to_user: format!("❌ Memory lookup couldn't find an answer for query {search}"),
@@ -90,15 +90,15 @@ pub async fn memory_set(search: String, user_id: &String, user_name: &String) ->
         .unwrap()
         .as_table_mut()
         .unwrap();
-    user_memories.insert(String::from("name"), toml::Value::String(user_name.clone()));
+    user_memories.insert(String::from("name"), toml::Value::String(user_name.to_string()));
     user_memories.insert(key.to_string(), toml::Value::String(new_memory));
     contents = toml::to_string(&parsed_toml).unwrap();
     std::fs::write("memories.toml", contents).unwrap();
 
-    return PluginReturn {
+    PluginReturn {
         result: String::from("Users memory was set successfully with the query"),
         to_user: format!("🧠 Memory set with query {search}"),
-    };
+    }
 }
 
 /// Get the memories for a user and key

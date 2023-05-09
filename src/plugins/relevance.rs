@@ -52,5 +52,5 @@ pub async fn check_relevance(user_text_total: String) -> bool {
         }
     }
 
-    return is_valid;
+    is_valid
 }

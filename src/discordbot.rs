@@ -34,11 +34,11 @@ impl EventHandler for Handler {
         // If in production, don't reply to messages that don't mention the bot
         // In debug, don't reply to messages that don't start with "!"
         if cfg!(debug_assertions) {
-            if !msg.content.starts_with("!") {
+            if !msg.content.starts_with('!') {
                 return;
             }
         } else {
-            if msg.content.starts_with("!") {
+            if msg.content.starts_with('!') {
                 return;
             }
             match msg.mentions_me(&ctx.http).await {
@@ -56,13 +56,13 @@ impl EventHandler for Handler {
 
         // Remove new lines, mentions and trim whitespace, reject empty messages
         let regex = Regex::new(r"(?m)<[@#]&?\d+>").unwrap();
-        let mut user_text = msg.content.replace("\n", " ").to_string();
+        let mut user_text = msg.content.replace('\n', " ").to_string();
         user_text = regex.replace_all(&user_text, "").trim().to_string();
         if cfg!(debug_assertions) {
             // Remove the first char "!" in debug
             user_text = user_text[1..].trim().to_string();
         }
-        if user_text == "" {
+        if user_text.is_empty() {
             return;
         }
 
@@ -84,7 +84,7 @@ impl EventHandler for Handler {
             };
             if replied_to.author.id == bot_user.id {
                 // See if the message is completed
-                if !replied_to.content.contains("✅") {
+                if !replied_to.content.contains('✅') {
                     return;
                 }
                 // See if the message is passed the thread limit
@@ -98,13 +98,8 @@ impl EventHandler for Handler {
                     return;
                 }
                 valid_reply = true;
-                message_history_text = replied_to
-                    .content
-                    .clone()
-                    .replace("✅ ", "☑️ ")
-                    .trim()
-                    .to_string()
-                    + "\n";
+                message_history_text =
+                    replied_to.content.replace("✅ ", "☑️ ").trim().to_string() + "\n";
             }
         } else {
             valid_reply = true;
@@ -156,7 +151,7 @@ impl EventHandler for Handler {
             .await
             .expect("Failed to send message");
 
-        let ctx_clone = (&ctx).clone();
+        let ctx_clone = ctx.clone();
 
         // Spawn a new thread to process the message
         tokio::spawn(async move {

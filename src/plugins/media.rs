@@ -33,15 +33,15 @@ If user queries \"how  many gbs do my added movies take up\" look up the memorie
 
 /// Get processing message
 pub async fn processing_message_lookup(query: String) -> String {
-    return format!("🎬 Looking up media {query}");
+    format!("🎬 Looking up media {query}")
 }
 
 pub async fn processing_message_add(query: String) -> String {
-    return format!("🎬 Adding media {query}");
+    format!("🎬 Adding media {query}")
 }
 
 pub async fn processing_message_setres(query: String) -> String {
-    return format!("🎬 Changing quality {query}");
+    format!("🎬 Changing quality {query}")
 }
 
 /// Perform a lookup of movies with ai processing to answer a prompt
@@ -50,11 +50,11 @@ pub async fn movie_lookup(query: String) -> PluginReturn {
     let response = apis::gpt_info_query(
         "gpt-4".to_string(),
         query.clone(),
-        format!("The above text is a query to lookup movies, from the text above gather a list of movie titles mentioned, mention each movies title in its core form such as ('Avatar: The Way of Water' to 'Avatar', 'The Lord of the Rings: Return of the King Ultimate Cut' to just 'Lord of the Rings', 'Thor 2' to 'Thor'), return a list with ; divider on a single line"),
+        "The above text is a query to lookup movies, from the text above gather a list of movie titles mentioned, mention each movies title in its core form such as ('Avatar: The Way of Water' to 'Avatar', 'The Lord of the Rings: Return of the King Ultimate Cut' to just 'Lord of the Rings', 'Thor 2' to 'Thor'), return a list with ; divider on a single line".to_string(),
     )
     .await
     .unwrap_or_default();
-    let terms: Vec<String> = response.split(";").map(|s| s.trim().to_string()).collect();
+    let terms: Vec<String> = response.split(';').map(|s| s.trim().to_string()).collect();
 
     // Get list of all movies, and searches per term
     let mut arr_searches = vec![];
@@ -85,10 +85,10 @@ pub async fn movie_lookup(query: String) -> PluginReturn {
     .await
     .unwrap_or_default();
 
-    return PluginReturn {
+    PluginReturn {
         result: response,
         to_user: format!("🎬 Movie lookup successful for {query}"),
-    };
+    }
 }
 
 /// Perform a lookup of series with ai processing to answer a prompt
@@ -97,11 +97,11 @@ pub async fn series_lookup(query: String) -> PluginReturn {
     let response = apis::gpt_info_query(
         "gpt-4".to_string(),
         query.clone(),
-        format!("From the text above gather a list of tv series titles mentioned, mention each series title in its core form such as ('Stargate: SG1' to 'Stargate', 'The Witcher' to just 'Witcher'), return a list with ; divider on a single line"),
+        "From the text above gather a list of tv series titles mentioned, mention each series title in its core form such as ('Stargate: SG1' to 'Stargate', 'The Witcher' to just 'Witcher'), return a list with ; divider on a single line".to_string(),
     )
     .await
     .unwrap_or_default();
-    let terms: Vec<String> = response.split(";").map(|s| s.trim().to_string()).collect();
+    let terms: Vec<String> = response.split(';').map(|s| s.trim().to_string()).collect();
 
     // Get list of all movies, and searches per term
     let mut arr_searches = vec![];
@@ -132,10 +132,10 @@ pub async fn series_lookup(query: String) -> PluginReturn {
     .await
     .unwrap_or_default();
 
-    return PluginReturn {
+    PluginReturn {
         result: response,
         to_user: format!("🎬 Series lookup successful for {query}"),
-    };
+    }
 }
 
 pub async fn media_add(media_type: MediaType, query: String) -> PluginReturn {
@@ -204,10 +204,10 @@ pub async fn media_add(media_type: MediaType, query: String) -> PluginReturn {
         }
     };
 
-    return PluginReturn {
+    PluginReturn {
         result: String::from(""),
         to_user: format!("🎬 Added {} with id {} in {}", media_type, id, quality),
-    };
+    }
 }
 
 pub async fn media_setres(media_type: MediaType, query: String) -> PluginReturn {
@@ -245,7 +245,7 @@ pub async fn media_setres(media_type: MediaType, query: String) -> PluginReturn 
 
     // Update media json with quality profile id
     media["qualityProfileId"] = quality_profile_id.into();
-    let media_id = media["id"].as_u64().unwrap().clone();
+    let media_id = media["id"].as_u64().unwrap();
     // Media to json
     let media = serde_json::to_string(&media).unwrap();
 
@@ -271,10 +271,10 @@ pub async fn media_setres(media_type: MediaType, query: String) -> PluginReturn 
         }
     };
 
-    return PluginReturn {
+    PluginReturn {
         result: String::from(""),
         to_user: format!("🎬 Updated {} with id {} to {}", media_type, id, quality),
-    };
+    }
 }
 
 /// Get media info from sonarr or radarr based on a search query
@@ -285,7 +285,7 @@ async fn get_media_info(
 ) -> Result<(Value, u32, u8, String), String> {
     // Convert query string to id: u32, quality: String, split on ; and convert types, return if error
     // id is either tmdb_id or tvdb_id
-    let mut query_split = query.split(";");
+    let mut query_split = query.split(';');
     let id: u32 = match query_split.next() {
         Some(id) => match id.parse::<u32>() {
             Ok(id) => id,
