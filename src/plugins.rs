@@ -43,16 +43,18 @@ pub async fn run_command(command: &str, user_id: &String, user_name: &str) -> Pl
     let args = command.split('~').collect::<Vec<&str>>();
     println!("Running command: {args:?}");
 
-    let result: PluginReturn = match *args.first().unwrap() {
-        "WEB" => websearch::ai_search(args[1].to_string()).await,
-        "MEM_GET" => memories::memory_get(args[1].to_string(), user_id).await,
-        "MEM_SET" => memories::memory_set(args[1].to_string(), user_id, user_name).await,
-        "MOVIE_LOOKUP" => media::lookup(media::Format::Movie, args[1].to_string()).await,
-        "SERIES_LOOKUP" => media::lookup(media::Format::Series, args[1].to_string()).await,
-        "MOVIE_ADD" => media::add(media::Format::Movie, args[1].to_string()).await,
-        "SERIES_ADD" => media::add(media::Format::Series, args[1].to_string()).await,
-        "MOVIE_SETRES" => media::setres(media::Format::Movie, args[1].to_string()).await,
-        "SERIES_SETRES" => media::setres(media::Format::Series, args[1].to_string()).await,
+    let first_arg = *args.first().unwrap();
+    let second_arg: String = (*args.get(1).unwrap_or(&"")).to_string();
+    let result: PluginReturn = match first_arg {
+        "WEB" => websearch::ai_search(second_arg).await,
+        "MEM_GET" => memories::memory_get(second_arg, user_id).await,
+        "MEM_SET" => memories::memory_set(second_arg, user_id, user_name).await,
+        "MOVIE_LOOKUP" => media::lookup(media::Format::Movie, second_arg).await,
+        "SERIES_LOOKUP" => media::lookup(media::Format::Series, second_arg).await,
+        "MOVIE_ADD" => media::add(media::Format::Movie, second_arg, user_id, user_name).await,
+        "SERIES_ADD" => media::add(media::Format::Series, second_arg, user_id, user_name).await,
+        "MOVIE_SETRES" => media::setres(media::Format::Movie, second_arg).await,
+        "SERIES_SETRES" => media::setres(media::Format::Series, second_arg).await,
         _ => PluginReturn {
             result: String::from("Unknown command"),
             to_user: String::from("❌ Attempted invalid command"),

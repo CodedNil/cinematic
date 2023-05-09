@@ -84,7 +84,7 @@ pub async fn lookup(media_type: Format, query: String) -> PluginReturn {
 
     // Search with gpt through series and movies to get ones of relevance
     let response = apis::gpt_info_query(
-        "gpt-3.5-turbo".to_string(),
+        "gpt-4".to_string(),
         media_strings.join("\n"),
         format!("Using very concise language\nBased on the given information and only this information give your best answer to, {query}"),
     )
@@ -97,7 +97,12 @@ pub async fn lookup(media_type: Format, query: String) -> PluginReturn {
     }
 }
 
-pub async fn add(media_type: Format, query: String) -> PluginReturn {
+pub async fn add(
+    media_type: Format,
+    query: String,
+    user_id: &String,
+    user_name: &str,
+) -> PluginReturn {
     let (mut media, id, quality_profile_id, quality) =
         match get_media_info(media_type.clone(), query.clone(), true).await {
             Ok(media_info) => media_info,
@@ -121,10 +126,39 @@ pub async fn add(media_type: Format, query: String) -> PluginReturn {
         }
     };
 
+    // Get user name clean
+    let user_name = apis::user_name_from_id(user_id, user_name)
+        .await
+        .unwrap_or(user_name.to_string());
+
+    // Sync then get all current tags
+    let service = match media_type {
+        Format::Movie => apis::ArrService::Radarr,
+        Format::Series => apis::ArrService::Sonarr,
+    };
+    apis::sync_user_tags(service.clone()).await;
+    let all_tags = apis::arr_request(
+        apis::HttpMethod::Get,
+        service,
+        "/api/v3/tag".to_string(),
+        None,
+    )
+    .await;
+    // Get id for users tag [{id: 1, label: "added-username"}]
+    let mut tag_id = 0;
+    if let Value::Array(tags) = &all_tags {
+        for tag in tags {
+            if tag["label"].as_str() == Some(&format!("added-{user_name}")) {
+                tag_id = tag["id"].as_u64().unwrap_or(0);
+            }
+        }
+    }
+
     // Update media json with quality profile id
     media["qualityProfileId"] = quality_profile_id.into();
     media["monitored"] = true.into();
     media["minimumAvailability"] = "announced".into();
+    media["tags"] = serde_json::json!([tag_id]);
     match media_type {
         Format::Movie => {
             media["addOptions"] = serde_json::json!({ "searchForMovie": true });
@@ -139,7 +173,6 @@ pub async fn add(media_type: Format, query: String) -> PluginReturn {
 
     // Media to json
     let media = serde_json::to_string(&media).unwrap();
-
     // Add the media to sonarr or radarr
     match media_type {
         Format::Movie => {
@@ -149,7 +182,7 @@ pub async fn add(media_type: Format, query: String) -> PluginReturn {
                 "/api/v3/movie".to_string(),
                 Some(media),
             )
-            .await;
+            .await
         }
         Format::Series => {
             apis::arr_request(
@@ -158,7 +191,7 @@ pub async fn add(media_type: Format, query: String) -> PluginReturn {
                 "/api/v3/series".to_string(),
                 Some(media),
             )
-            .await;
+            .await
         }
     };
 

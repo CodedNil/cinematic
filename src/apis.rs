@@ -176,7 +176,42 @@ pub async fn arr_request(
     serde_json::from_str(&response).expect("Failed to parse json")
 }
 
-pub async fn sync_user_tags() {
+/// Get from the memories file the users name if it exists, cleaned up string
+pub async fn user_name_from_id(user_id: &String, user_name_dirty: &str) -> Option<String> {
+    let contents = std::fs::read_to_string("memories.toml");
+    if contents.is_err() {
+        return None;
+    }
+    let parsed_toml: toml::Value = contents.unwrap().parse().unwrap();
+    let user = parsed_toml.get(user_id)?;
+    // If doesn't have the name, add it and write the file
+    if !user.as_table().unwrap().contains_key("name") {
+        // Convert name to plaintext alphanumeric only with gpt
+        let response = gpt_info_query(
+            "gpt-4".to_string(),
+            user_name_dirty.to_string(),
+            "Convert the above name to plaintext alphanumeric only".to_string(),
+        )
+        .await;
+        if response.is_err() {
+            return None;
+        }
+        // Write file
+        let name = response.unwrap();
+        let mut user = user.as_table().unwrap().clone();
+        user.insert("name".to_string(), toml::Value::String(name));
+        let mut parsed_toml = parsed_toml.as_table().unwrap().clone();
+        parsed_toml.insert(user_id.to_string(), toml::Value::Table(user));
+        let toml_string = toml::to_string(&parsed_toml).unwrap();
+        std::fs::write("memories.toml", toml_string).unwrap();
+    }
+    // Return clean name
+    let user_name = user.get("name").unwrap().as_str().unwrap().to_string();
+    Some(user_name)
+}
+
+/// Sync tags on sonarr or radarr for added-username
+pub async fn sync_user_tags(media_type: ArrService) {
     let contents = std::fs::read_to_string("memories.toml");
     if contents.is_err() {
         return;
@@ -194,7 +229,7 @@ pub async fn sync_user_tags() {
     // Get all current tags
     let all_tags = arr_request(
         HttpMethod::Get,
-        ArrService::Sonarr,
+        media_type.clone(),
         "/api/v3/tag".to_string(),
         None,
     )
@@ -220,7 +255,7 @@ pub async fn sync_user_tags() {
         let body = serde_json::json!({ "label": tag }).to_string();
         arr_request(
             HttpMethod::Post,
-            ArrService::Sonarr,
+            media_type.clone(),
             "/api/v3/tag".to_string(),
             Some(body),
         )
@@ -246,7 +281,7 @@ pub async fn sync_user_tags() {
             .unwrap();
         arr_request(
             HttpMethod::Delete,
-            ArrService::Sonarr,
+            media_type.clone(),
             format!("/api/v3/tag/{tag_id}"),
             None,
         )
