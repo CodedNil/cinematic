@@ -175,3 +175,49 @@ pub async fn arr_request(
 
     serde_json::from_str(&response).expect("Failed to parse json")
 }
+
+async fn get_tags_with_prefix(prefix: &str) -> Vec<String> {
+    let tags_result = arr_request(HttpMethod::Get, ArrService::Sonarr, format!("/api/v3/tag"), None).await;
+    let mut matched_tags = Vec::new();
+
+    if let Ok(tags) = tags_result {
+        if let Some(tags_array) = tags.as_array() {
+            for tag in tags_array {
+                if let Some(label) = tag["label"].as_str() {
+                    if label.starts_with(prefix) {
+                        matched_tags.push(label.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    matched_tags
+}
+
+pub async fn sync_user_tags(user_names: Vec<&str>) {
+    let mut current_tags = get_tags_with_prefix("added-").await;
+    let mut desired_tags: Vec<String> = user_names
+        .iter()
+        .map(|user_name| format!("added-{}", user_name))
+        .collect();
+
+    // Remove extra tags
+    for tag in &current_tags {
+        if !desired_tags.contains(tag) {
+            if let Some(tag_id) = arr_request(HttpMethod::Get, ArrService::Sonarr, format!("/api/v3/tag?label={}", tag), None).await.unwrap().as_array().unwrap().get(0).map(|t| t["id"].as_i64().unwrap()) {
+                arr_request(HttpMethod::Delete, ArrService::Sonarr, format!("/api/v3/tag/{}", tag_id), None).await.unwrap();
+            }
+        }
+    }
+
+    // Add missing tags
+    for tag in desired_tags {
+        if !current_tags.contains(&tag) {
+            let body = json!({
+                "label": tag
+            });
+            arr_request(HttpMethod::Post, ArrService::Sonarr, format!("/api/v3/tag"), Some(body)).await.unwrap();
+        }
+    }
+}
