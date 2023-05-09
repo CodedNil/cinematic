@@ -80,11 +80,10 @@ pub async fn gpt_info_query(model: String, data: String, prompt: String) -> Resu
         let response = openai.chat().create(request.clone()).await;
         if let Ok(response) = response {
             break Ok(response);
-        } else {
-            tries += 1;
-            if tries >= 3 {
-                break response;
-            }
+        }
+        tries += 1;
+        if tries >= 3 {
+            break response;
         }
     };
     // Return from errors
@@ -131,7 +130,7 @@ pub async fn arr_request(
         .to_string();
 
     let client = reqwest::Client::new();
-    let req = client
+    let request = client
         .request(
             match method {
                 HttpMethod::Get => Method::GET,
@@ -139,18 +138,20 @@ pub async fn arr_request(
                 HttpMethod::Put => Method::PUT,
                 HttpMethod::Delete => Method::DELETE,
             },
-            format!("{}{}", arr_url, url),
+            format!("{arr_url}{url}"),
         )
         .basic_auth(username, Some(password))
         .header("X-Api-Key", arr_api_key);
 
-    let req = if let Some(data) = data {
-        req.header("Content-Type", "application/json").body(data)
+    let request = if let Some(data) = data {
+        request
+            .header("Content-Type", "application/json")
+            .body(data)
     } else {
-        req
+        request
     };
 
-    let res = req
+    let response = request
         .send()
         .await
         .expect("Failed to send request")
@@ -158,5 +159,5 @@ pub async fn arr_request(
         .await
         .expect("Failed to get response");
 
-    serde_json::from_str(&res).expect("Failed to parse json")
+    serde_json::from_str(&response).expect("Failed to parse json")
 }

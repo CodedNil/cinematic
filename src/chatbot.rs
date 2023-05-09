@@ -12,15 +12,52 @@ use std::sync::{Arc, Mutex};
 
 use crate::{apis, plugins};
 
+/// Helper function to handle command execution
+async fn execute_command(
+    command: String,
+    user_id: String,
+    user_name: String,
+    command_replies_lock: Arc<Mutex<Vec<String>>>,
+    extra_message_history_lock: Arc<Mutex<String>>,
+) {
+    let command_replies_lock = Arc::clone(&command_replies_lock);
+    let extra_message_history_lock = Arc::clone(&extra_message_history_lock);
+
+    tokio::spawn(async move {
+        // Add the processing message in the discord message
+        let processing_msg = plugins::get_processing_message(&command);
+        extra_message_history_lock
+            .lock()
+            .unwrap()
+            .push_str(format!("{processing_msg}\n").as_str());
+
+        let reply = plugins::run_command(&command, &user_id, &user_name).await;
+        let command_reply = format!("{command}~{result}", result = reply.result);
+        // Push the command plus reply into the mutex
+        let mut command_replies: std::sync::MutexGuard<Vec<String>> =
+            command_replies_lock.lock().unwrap();
+        command_replies.push(command_reply);
+
+        // Remove processing message, {processing_msg}\n with replace
+        let mut history = extra_message_history_lock.lock().unwrap();
+        let range = history
+            .rfind(format!("{processing_msg}\n").as_str())
+            .unwrap()..;
+        history.replace_range(range, "");
+        // Add the reply to user in the discord message
+        history.push_str(format!("{}\n", reply.to_user).as_str());
+    });
+}
+
 /// Run a ai chat completition to process commands
 pub async fn chat_completition_step(
-    ctx: DiscordContext,                             // The discord context
-    mut bot_message: DiscordMessage,                 // The reply to the user
-    message_history_text: String,                    // The message history text
-    chat_query: Vec<ChatCompletionRequestMessage>,   // The chat query to send to gpt
-    extra_message_history_mutex: Arc<Mutex<String>>, // The extra message history mutex
-    user_id: String,                                 // The user id
-    user_name: String,                               // The user name
+    ctx: DiscordContext,                            // The discord context
+    mut bot_message: DiscordMessage,                // The reply to the user
+    message_history_text: String,                   // The message history text
+    chat_query: Vec<ChatCompletionRequestMessage>,  // The chat query to send to gpt
+    extra_message_history_lock: Arc<Mutex<String>>, // The extra message history mutex
+    user_id: String,                                // The user id
+    user_name: String,                              // The user name
 ) -> (Vec<String>, String) {
     // Create the gpt request
     let request = CreateChatCompletionRequestArgs::default()
@@ -42,86 +79,65 @@ pub async fn chat_completition_step(
     let mut last_edit = Local::now();
     // Collect commands, and replies in a mutex
     let mut commands: Vec<String> = Vec::new();
-    let command_replies_mutex: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let command_replies_lock: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    // Stream the reply
     while let Some(result) = stream.next().await {
         // Get the result of this chunk
         match result {
             Ok(response) => {
                 // Get the first choice of the response
                 let chat_choice = response.choices.first().unwrap();
-                if let Some(ref content) = chat_choice.delta.content {
-                    // Add chunk to full text
-                    full_text.push_str(content);
+                // If the content is not valid, continue
+                if chat_choice.delta.content.is_none() {
+                    continue;
+                }
+                let content = chat_choice.delta.content.as_ref().unwrap();
+                // Add chunk to full text
+                full_text.push_str(content);
 
-                    // Get commands and user text out of the full text, commands are within []
-                    let re_command = Regex::new(r"\[(.*?)\]").unwrap();
-                    for cap in re_command.captures_iter(&full_text) {
-                        // If command is not in commands, add it
-                        if !commands.contains(&cap[1].to_string()) {
-                            commands.push(cap[1].to_string().clone());
-                            // Run in a thread
-                            let command_c = cap[1].to_string().clone();
-                            let command_replies_mutex_c = Arc::clone(&command_replies_mutex);
-                            let extra_message_history_mutex_c =
-                                Arc::clone(&extra_message_history_mutex);
-                            let user_id = user_id.clone();
-                            let user_name = user_name.clone();
-                            // Push replies into the mutex
-                            tokio::spawn(async move {
-                                // Add the processing message in the discord message
-                                let processing = plugins::get_processing_message(&command_c).await;
-                                extra_message_history_mutex_c
-                                    .lock()
-                                    .unwrap()
-                                    .push_str(format!("{processing}\n").as_str());
-
-                                let reply =
-                                    plugins::run_command(&command_c, &user_id, &user_name).await;
-                                let command_reply =
-                                    format!("{command_c}~{result}", result = reply.result);
-                                // Push the command plus reply into the mutex
-                                let mut command_replies: std::sync::MutexGuard<Vec<String>> =
-                                    command_replies_mutex_c.lock().unwrap();
-                                command_replies.push(command_reply);
-
-                                // Remove processing message, {processing}\n with replace
-                                let mut history = extra_message_history_mutex_c.lock().unwrap();
-                                let range =
-                                    history.rfind(format!("{processing}\n").as_str()).unwrap()..;
-                                history.replace_range(range, "");
-                                // Add the reply to user in the discord message
-                                history.push_str(format!("{}\n", reply.to_user).as_str());
-                            });
-                        }
+                // Get commands and user text out of the full text, commands are within []
+                let re_command = Regex::new(r"\[(.*?)\]").unwrap();
+                for cap in re_command.captures_iter(&full_text) {
+                    // If command is not in commands, add it
+                    if !commands.contains(&cap[1].to_string()) {
+                        commands.push(cap[1].to_string().clone());
+                        // Run in a thread
+                        execute_command(
+                            cap[1].to_string(),
+                            user_id.clone(),
+                            user_name.clone(),
+                            Arc::clone(&command_replies_lock),
+                            Arc::clone(&extra_message_history_lock),
+                        )
+                        .await;
                     }
-                    // User text is outside [], opened [ that arent closed count everything past them as not user text
-                    let re_user = Regex::new(r"(?m)(?:\[[^\]\[]*?\]|^)([^\[\]]+)").unwrap();
-                    user_text = String::new();
-                    for cap in re_user.captures_iter(&full_text) {
-                        user_text.push_str(&cap[1]);
-                    }
+                }
+                // User text is outside [], opened [ that arent closed count everything past them as not user text
+                let re_user = Regex::new(r"(?m)(?:\[[^\]\[]*?\]|^)([^\[\]]+)").unwrap();
+                user_text = String::new();
+                for cap in re_user.captures_iter(&full_text) {
+                    user_text.push_str(&cap[1]);
+                }
 
-                    // Edit the discord message with the new content, edit it threaded so it doesnt interrupt the stream, max edits per second
-                    if last_user_text != user_text
-                        && last_edit.timestamp_millis() + 1000 < Local::now().timestamp_millis()
-                    {
-                        last_user_text = user_text.clone();
-                        let ctx_c = ctx.clone();
-                        let mut bot_message_c = bot_message.clone();
-                        let message_history_text_c = message_history_text.clone();
-                        let extra_history_text_c =
-                            extra_message_history_mutex.lock().unwrap().clone();
-                        let user_text_c = user_text.clone();
-                        tokio::spawn(async move {
-                            bot_message_c
-                                .edit(&ctx_c.http, |msg| {
-                                    msg.content(format!("{message_history_text_c}{extra_history_text_c}⌛ {user_text_c}"))
-                                })
-                                .await
-                                .unwrap();
-                        });
-                        last_edit = Local::now();
-                    }
+                // Edit the discord message with the new content, edit it threaded so it doesnt interrupt the stream, max edits per second
+                if last_user_text != user_text
+                    && last_edit.timestamp_millis() + 1000 < Local::now().timestamp_millis()
+                {
+                    last_user_text = user_text.clone();
+                    let ctx_c = ctx.clone();
+                    let mut bot_message_c = bot_message.clone();
+                    let message_history_text_c = message_history_text.clone();
+                    let extra_history_text_c = extra_message_history_lock.lock().unwrap().clone();
+                    let user_text_c = user_text.clone();
+                    tokio::spawn(async move {
+                        bot_message_c
+                            .edit(&ctx_c.http, |msg| {
+                                msg.content(format!("{message_history_text_c}{extra_history_text_c}⌛ {user_text_c}"))
+                            })
+                            .await
+                            .unwrap();
+                    });
+                    last_edit = Local::now();
                 }
             }
             Err(err) => {
@@ -130,7 +146,7 @@ pub async fn chat_completition_step(
         }
     }
     // Edit the discord message with the new content
-    let extra_history_text_c = extra_message_history_mutex.lock().unwrap().clone();
+    let extra_history_text_c = extra_message_history_lock.lock().unwrap().clone();
     bot_message
         .edit(&ctx.http, |msg| {
             msg.content(format!(
@@ -142,17 +158,17 @@ pub async fn chat_completition_step(
 
     // Wait until command replies are same length as commands, or timeout
     let start_time = Local::now();
-    while commands.len() != command_replies_mutex.lock().unwrap().len() {
+    while commands.len() != command_replies_lock.lock().unwrap().len() {
         if Local::now().timestamp_millis() > start_time.timestamp_millis() + 30000 {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
     // Get the command replies
-    let command_replies = command_replies_mutex.lock().unwrap().clone();
+    let command_replies = command_replies_lock.lock().unwrap().clone();
 
     // Edit the discord message with the new content
-    let extra_history_text_c = extra_message_history_mutex.lock().unwrap().clone();
+    let extra_history_text_c = extra_message_history_lock.lock().unwrap().clone();
     bot_message
         .edit(&ctx.http, |msg| {
             msg.content(format!(
@@ -224,25 +240,25 @@ pub async fn run_chat_completition(
     );
 
     // Extra message history mutex
-    let extra_message_history_mutex: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+    let extra_message_history_lock: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
 
     // Process the chat with running commands until either no data lookups left, or max iterations reached
     let mut iteration = 0;
     let max_iterations = 5;
     let mut latest_user_text = String::new();
     while iteration < max_iterations {
-        let (command_results, user_text) = chat_completition_step(
+        let (command_results, cmd_user_text) = chat_completition_step(
             ctx.clone(),
             bot_message.clone(),
             message_history_text.clone(),
             chat_query.clone(),
-            extra_message_history_mutex.clone(),
+            extra_message_history_lock.clone(),
             user_id.clone(),
             user_name.clone(),
         )
         .await;
-        if !user_text.is_empty() {
-            latest_user_text = user_text.clone();
+        if !cmd_user_text.is_empty() {
+            latest_user_text = cmd_user_text.clone();
         }
 
         // Check if there are any command returns with outputs
@@ -265,9 +281,9 @@ pub async fn run_chat_completition(
         // Get all commands in one string
         let mut commands = String::new();
         for result in &command_results.clone() {
-            commands.push_str(format!("[{}]", result).as_str());
+            commands.push_str(format!("[{result}]").as_str());
         }
-        commands.push_str(user_text.as_str());
+        commands.push_str(cmd_user_text.as_str());
         // Add system message with results
         chat_query.push(
             ChatCompletionRequestMessageArgs::default()
@@ -281,7 +297,7 @@ pub async fn run_chat_completition(
         iteration += 1;
     }
     // Edit the discord message finalised
-    let extra_history_text_c = extra_message_history_mutex.lock().unwrap().clone();
+    let extra_history_text_c = extra_message_history_lock.lock().unwrap().clone();
     bot_message
         .edit(&ctx.http, |msg| {
             msg.content(format!(
@@ -313,7 +329,7 @@ pub async fn process_chat(
     user_text_total.push_str(&user_text);
 
     // Don't reply to non media queries, compare user_text_total with the ai model
-    if !plugins::relevance::check_relevance(user_text_total.clone()).await {
+    if !plugins::relevance::check(user_text_total.clone()).await {
         // Edit the message to let the user know the message is not valid
         bot_message
             .edit(&ctx.http, |msg: &mut serenity::builder::EditMessage| {

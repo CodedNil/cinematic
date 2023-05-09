@@ -28,15 +28,13 @@ Example: [WEB~who is the main actor in iron man]".to_string()
 }
 
 async fn brave(query: String) -> Result<SearchBrave, Box<dyn Error>> {
-    let response_search =
-        reqwest::get(format!("https://search.brave.com/search?q={}", query)).await;
+    let response_search = reqwest::get(format!("https://search.brave.com/search?q={query}")).await;
     if response_search.is_err() {
         return Err("Failed to fetch brave search".into());
     }
     // Get the summarizer text if exists
     let response_summary = reqwest::get(format!(
-        "https://search.brave.com/api/summarizer?key={}:us:en",
-        query
+        "https://search.brave.com/api/summarizer?key={query}:us:en"
     ))
     .await;
 
@@ -130,7 +128,7 @@ async fn brave(query: String) -> Result<SearchBrave, Box<dyn Error>> {
 }
 
 /// Get processing message
-pub async fn processing_message(query: String) -> String {
+pub fn processing_message(query: &String) -> String {
     format!("🔍 Web search running for query {query}")
 }
 
@@ -141,7 +139,7 @@ pub async fn ai_search(query: String) -> PluginReturn {
     if search_results.results.is_empty() {
         return PluginReturn {
             result: "No results found".to_string(),
-            to_user: format!("❌ No results found for web search {}", query),
+            to_user: format!("❌ No results found for web search {query}"),
         };
     }
 
@@ -167,7 +165,7 @@ pub async fn ai_search(query: String) -> PluginReturn {
                 // Trim every line
                 text = text
                     .lines()
-                    .map(|line| line.trim())
+                    .map(str::trim)
                     .collect::<Vec<&str>>()
                     .join("\n");
                 text = text.replace("\n\n", " ");

@@ -5,7 +5,7 @@ use async_openai::types::{
 };
 
 /// Check if a message is relevant as a media query, returns true if relevant
-pub async fn check_relevance(user_text_total: String) -> bool {
+pub async fn check(user_text_total: String) -> bool {
     // Check with a openai prompt if the user text is relevant
     let request = CreateChatCompletionRequestArgs::default()
         .max_tokens(4u16)
@@ -29,16 +29,15 @@ pub async fn check_relevance(user_text_total: String) -> bool {
         let response = apis::get_openai().chat().create(request.clone()).await;
         if let Ok(r) = response {
             break Ok(r);
-        } else {
-            tries += 1;
-            if tries >= 3 {
-                break response;
-            }
+        }
+        tries += 1;
+        if tries >= 3 {
+            break response;
         }
     };
     // Return from errors
     if let Err(error) = response {
-        println!("Error: {:?}", error);
+        println!("Error: {error:?}");
         return false;
     }
     // TODO log the openai call and response

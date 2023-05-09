@@ -4,15 +4,15 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
-pub enum MediaType {
+pub enum Format {
     Movie,
     Series,
 }
-impl std::fmt::Display for MediaType {
+impl std::fmt::Display for Format {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match *self {
-            MediaType::Movie => write!(f, "Movie"),
-            MediaType::Series => write!(f, "Series"),
+            Self::Movie => write!(f, "Movie"),
+            Self::Series => write!(f, "Series"),
         }
     }
 }
@@ -32,37 +32,41 @@ If user queries \"how  many gbs do my added movies take up\" look up the memorie
 }
 
 /// Get processing message
-pub async fn processing_message_lookup(query: String) -> String {
+pub fn processing_message_lookup(query: &String) -> String {
     format!("🎬 Looking up media {query}")
 }
 
-pub async fn processing_message_add(query: String) -> String {
+pub fn processing_message_add(query: &String) -> String {
     format!("🎬 Adding media {query}")
 }
 
-pub async fn processing_message_setres(query: String) -> String {
+pub fn processing_message_setres(query: &String) -> String {
     format!("🎬 Changing quality {query}")
 }
 
 /// Perform a lookup of movies with ai processing to answer a prompt
-pub async fn movie_lookup(query: String) -> PluginReturn {
+pub async fn lookup(media_type: Format, query: String) -> PluginReturn {
+    let prompt = match media_type {
+        Format::Movie => "The above text is a query to lookup movies, from the text above gather a list of movie titles mentioned, mention each movies title in its core form such as ('Avatar: The Way of Water' to 'Avatar', 'The Lord of the Rings: Return of the King Ultimate Cut' to just 'Lord of the Rings', 'Thor 2' to 'Thor'), return a list with ; divider on a single line".to_string(),
+        Format::Series => "The above text is a query to lookup series, from the text above gather a list of series titles mentioned, mention each series title in its core form such as ('Stargate: SG1' to 'Stargate', 'The Witcher' to just 'Witcher'), return a list with ; divider on a single line".to_string(),
+    };
     // Use gpt to get a list of all movies to search for
-    let response = apis::gpt_info_query(
-        "gpt-4".to_string(),
-        query.clone(),
-        "The above text is a query to lookup movies, from the text above gather a list of movie titles mentioned, mention each movies title in its core form such as ('Avatar: The Way of Water' to 'Avatar', 'The Lord of the Rings: Return of the King Ultimate Cut' to just 'Lord of the Rings', 'Thor 2' to 'Thor'), return a list with ; divider on a single line".to_string(),
-    )
-    .await
-    .unwrap_or_default();
+    let response = apis::gpt_info_query("gpt-4".to_string(), query.clone(), prompt)
+        .await
+        .unwrap_or_default();
     let terms: Vec<String> = response.split(';').map(|s| s.trim().to_string()).collect();
 
-    // Get list of all movies, and searches per term
+    // Get list of all media, and searches per term
     let mut arr_searches = vec![];
-    for term in terms.iter() {
+    let arr_service = match media_type {
+        Format::Movie => apis::ArrService::Radarr,
+        Format::Series => apis::ArrService::Sonarr,
+    };
+    for term in &terms {
         arr_searches.push(apis::arr_request(
             apis::HttpMethod::Get,
-            apis::ArrService::Radarr,
-            format!("/api/v3/movie/lookup?term={}", term),
+            arr_service.clone(),
+            format!("/api/v3/{media_type}/lookup?term={term}"),
             None,
         ));
     }
@@ -73,7 +77,7 @@ pub async fn movie_lookup(query: String) -> PluginReturn {
     for search in arr_searches {
         let search_results = search.clone();
         // Trim the searches so each only contains 5 results max and output plain english
-        media_strings.push(movies_to_plain_english(search_results, 5));
+        media_strings.push(media_to_plain_english(&media_type, search_results, 5));
     }
 
     // Search with gpt through series and movies to get ones of relevance
@@ -87,64 +91,17 @@ pub async fn movie_lookup(query: String) -> PluginReturn {
 
     PluginReturn {
         result: response,
-        to_user: format!("🎬 Movie lookup successful for {query}"),
+        to_user: format!("🎬 {media_type} lookup successful for {query}"),
     }
 }
 
-/// Perform a lookup of series with ai processing to answer a prompt
-pub async fn series_lookup(query: String) -> PluginReturn {
-    // Use gpt to get a list of all series to search for
-    let response = apis::gpt_info_query(
-        "gpt-4".to_string(),
-        query.clone(),
-        "From the text above gather a list of tv series titles mentioned, mention each series title in its core form such as ('Stargate: SG1' to 'Stargate', 'The Witcher' to just 'Witcher'), return a list with ; divider on a single line".to_string(),
-    )
-    .await
-    .unwrap_or_default();
-    let terms: Vec<String> = response.split(';').map(|s| s.trim().to_string()).collect();
-
-    // Get list of all movies, and searches per term
-    let mut arr_searches = vec![];
-    for term in terms.iter() {
-        arr_searches.push(apis::arr_request(
-            apis::HttpMethod::Get,
-            apis::ArrService::Sonarr,
-            format!("/api/v3/series/lookup?term={}", term),
-            None,
-        ));
-    }
-    // Wait for all searches to finish parallel
-    let arr_searches = futures::future::join_all(arr_searches).await;
-    // Gather human readable data for each item
-    let mut media_strings: Vec<String> = Vec::new();
-    for search in arr_searches {
-        let search_results = search.clone();
-        // Trim the searches so each only contains 5 results max and output plain english
-        media_strings.push(series_to_plain_english(search_results, 5));
-    }
-
-    // Search with gpt through series and movies to get ones of relevance
-    let response = apis::gpt_info_query(
-        "gpt-3.5-turbo".to_string(),
-        media_strings.join("\n"),
-        format!("Using very concise language\nBased on the given information and only this information give your best answer to, {query}"),
-    )
-    .await
-    .unwrap_or_default();
-
-    PluginReturn {
-        result: response,
-        to_user: format!("🎬 Series lookup successful for {query}"),
-    }
-}
-
-pub async fn media_add(media_type: MediaType, query: String) -> PluginReturn {
+pub async fn add(media_type: Format, query: String) -> PluginReturn {
     let (mut media, id, quality_profile_id, quality) =
         match get_media_info(media_type.clone(), query.clone(), true).await {
             Ok(media_info) => media_info,
             Err(err) => {
                 return PluginReturn {
-                    result: String::from(""),
+                    result: String::new(),
                     to_user: err,
                 }
             }
@@ -154,10 +111,9 @@ pub async fn media_add(media_type: MediaType, query: String) -> PluginReturn {
     if let Value::Number(id) = &media["id"] {
         if id.as_u64().unwrap() != 0 {
             return PluginReturn {
-                result: format!("{} with id {} is already on the server", media_type, id),
+                result: format!("{media_type} with id {id} is already on the server"),
                 to_user: format!(
-                    "❌ Can't add movie {} with id {} is already on the server",
-                    media_type, id
+                    "❌ Can't add movie {media_type} with id {id} is already on the server"
                 ),
             };
         }
@@ -168,11 +124,11 @@ pub async fn media_add(media_type: MediaType, query: String) -> PluginReturn {
     media["monitored"] = true.into();
     media["minimumAvailability"] = "announced".into();
     match media_type {
-        MediaType::Movie => {
+        Format::Movie => {
             media["addOptions"] = serde_json::json!({ "searchForMovie": true });
             media["rootFolderPath"] = "/movies".into();
         }
-        MediaType::Series => {
+        Format::Series => {
             media["addOptions"] = serde_json::json!({ "searchForMissingEpisodes": true });
             media["rootFolderPath"] = "/tv".into();
             media["languageProfileId"] = 1.into();
@@ -184,7 +140,7 @@ pub async fn media_add(media_type: MediaType, query: String) -> PluginReturn {
 
     // Add the media to sonarr or radarr
     match media_type {
-        MediaType::Movie => {
+        Format::Movie => {
             apis::arr_request(
                 apis::HttpMethod::Post,
                 apis::ArrService::Radarr,
@@ -193,7 +149,7 @@ pub async fn media_add(media_type: MediaType, query: String) -> PluginReturn {
             )
             .await;
         }
-        MediaType::Series => {
+        Format::Series => {
             apis::arr_request(
                 apis::HttpMethod::Post,
                 apis::ArrService::Sonarr,
@@ -205,18 +161,18 @@ pub async fn media_add(media_type: MediaType, query: String) -> PluginReturn {
     };
 
     PluginReturn {
-        result: String::from(""),
-        to_user: format!("🎬 Added {} with id {} in {}", media_type, id, quality),
+        result: String::new(),
+        to_user: format!("🎬 Added {media_type} with id {id} in {quality}"),
     }
 }
 
-pub async fn media_setres(media_type: MediaType, query: String) -> PluginReturn {
+pub async fn setres(media_type: Format, query: String) -> PluginReturn {
     let (mut media, id, quality_profile_id, quality) =
         match get_media_info(media_type.clone(), query.clone(), false).await {
             Ok(media_info) => media_info,
             Err(err) => {
                 return PluginReturn {
-                    result: String::from(""),
+                    result: String::new(),
                     to_user: err,
                 }
             }
@@ -226,19 +182,17 @@ pub async fn media_setres(media_type: MediaType, query: String) -> PluginReturn 
     if let Value::Number(id) = &media["id"] {
         if id.as_u64().unwrap() == 0 {
             return PluginReturn {
-                result: format!("{} with id {} isnt on the server", media_type, id),
+                result: format!("{media_type} with id {id} isnt on the server"),
                 to_user: format!(
-                    "❌ Couldn't change resolution, {} with id {} isnt on the server",
-                    media_type, id
+                    "❌ Couldn't change resolution, {media_type} with id {id} isnt on the server"
                 ),
             };
         }
     } else {
         return PluginReturn {
-            result: format!("{} with id {} isnt on the server", media_type, id),
+            result: format!("{media_type} with id {id} isnt on the server"),
             to_user: format!(
-                "❌ Couldn't change resolution, {} with id {} isnt on the server",
-                media_type, id
+                "❌ Couldn't change resolution, {media_type} with id {id} isnt on the server"
             ),
         };
     }
@@ -251,20 +205,20 @@ pub async fn media_setres(media_type: MediaType, query: String) -> PluginReturn 
 
     // Push the media to sonarr or radarr
     match media_type {
-        MediaType::Movie => {
+        Format::Movie => {
             apis::arr_request(
                 apis::HttpMethod::Put,
                 apis::ArrService::Radarr,
-                format!("/api/v3/movie/{}", media_id),
+                format!("/api/v3/movie/{media_id}"),
                 Some(media),
             )
             .await
         }
-        MediaType::Series => {
+        Format::Series => {
             apis::arr_request(
                 apis::HttpMethod::Put,
                 apis::ArrService::Sonarr,
-                format!("/api/v3/series/{}", media_id),
+                format!("/api/v3/series/{media_id}"),
                 Some(media),
             )
             .await
@@ -272,14 +226,14 @@ pub async fn media_setres(media_type: MediaType, query: String) -> PluginReturn 
     };
 
     PluginReturn {
-        result: String::from(""),
-        to_user: format!("🎬 Updated {} with id {} to {}", media_type, id, quality),
+        result: String::new(),
+        to_user: format!("🎬 Updated {media_type} with id {id} to {quality}"),
     }
 }
 
 /// Get media info from sonarr or radarr based on a search query
 async fn get_media_info(
-    media_type: MediaType,
+    media_type: Format,
     query: String,
     is_tmdb: bool, // Is tmdb/tvdb id or sonarr/radarr id
 ) -> Result<(Value, u32, u8, String), String> {
@@ -290,20 +244,17 @@ async fn get_media_info(
         Some(id) => match id.parse::<u32>() {
             Ok(id) => id,
             Err(_) => {
-                return Err(format!("❌ {} search failed, id not a number", media_type));
+                return Err(format!("❌ {media_type} search failed, id not a number"));
             }
         },
         None => {
-            return Err(format!("❌ {} search failed, id not found", media_type));
+            return Err(format!("❌ {media_type} search failed, id not found"));
         }
     };
     let quality: String = match query_split.next() {
         Some(quality) => quality.to_string(),
         None => {
-            return Err(format!(
-                "❌ {} search failed, quality not found",
-                media_type
-            ));
+            return Err(format!("❌ {media_type} search failed, quality not found"));
         }
     };
     // Convert quality string to quality profile id
@@ -316,33 +267,34 @@ async fn get_media_info(
         ("Any", 7),
     ]
     .iter()
-    .cloned()
+    .copied()
     .collect();
     // Default to 4 which is 1080p if none found
     let quality_profile_id: u8 = *quality_profiles.get(quality.as_str()).unwrap_or(&4);
 
     // Get media info based on media type (Movie or Series)
-    let (lookup_path, service) = match is_tmdb {
-        true => match media_type {
-            MediaType::Movie => (
-                format!("/api/v3/movie/lookup/tmdb?tmdbId={}", id),
+    let (lookup_path, service) = if is_tmdb {
+        match media_type {
+            Format::Movie => (
+                format!("/api/v3/movie/lookup/tmdb?tmdbId={id}"),
                 apis::ArrService::Radarr,
             ),
-            MediaType::Series => (
-                format!("/api/v3/series/lookup/tmdb?tmdbId={}", id),
+            Format::Series => (
+                format!("/api/v3/series/lookup/tmdb?tmdbId={id}"),
                 apis::ArrService::Sonarr,
             ),
-        },
-        false => match media_type {
-            MediaType::Movie => (format!("/api/v3/movie/{}", id), apis::ArrService::Radarr),
-            MediaType::Series => (format!("/api/v3/series/{}", id), apis::ArrService::Sonarr),
-        },
+        }
+    } else {
+        match media_type {
+            Format::Movie => (format!("/api/v3/movie/{id}"), apis::ArrService::Radarr),
+            Format::Series => (format!("/api/v3/series/{id}"), apis::ArrService::Sonarr),
+        }
     };
 
     let mut media =
         apis::arr_request(apis::HttpMethod::Get, service.clone(), lookup_path, None).await;
     // If is series, get first result
-    if let MediaType::Series = media_type {
+    if matches!(media_type, Format::Series) {
         media = media[0].clone();
     };
 
@@ -350,20 +302,19 @@ async fn get_media_info(
 }
 
 /// Convert number size to string with units
-fn sizeof_fmt(num: u64) -> String {
+fn sizeof_fmt(mut num: f64) -> String {
     let units = ["B", "KB", "MB", "GB", "TB"];
     let mut index = 0;
-    let mut size = num as f64;
-    while size >= 1024.0 && index < units.len() - 1 {
-        size /= 1024.0;
+    while num >= 1024.0 && index < units.len() - 1 {
+        num /= 1024.0;
         index += 1;
     }
-    format!("{:.2} {}", size, units[index])
+    format!("{:.2} {}", num, units[index])
 }
 
-/// Convert json of movies data to plain english
-fn movies_to_plain_english(response: Value, num: usize) -> String {
-    let quality_profiles: HashMap<u8, &str> = [
+/// Convert json of movies/series data to plain english
+fn media_to_plain_english(media_type: &Format, response: Value, num: usize) -> String {
+    let quality_profiles: HashMap<u64, &str> = [
         (2, "SD"),
         (3, "720p"),
         (4, "1080p"),
@@ -372,116 +323,69 @@ fn movies_to_plain_english(response: Value, num: usize) -> String {
         (7, "Any"),
     ]
     .iter()
-    .cloned()
+    .copied()
     .collect();
 
     let mut results = Vec::new();
-    if let Value::Array(movies) = response {
-        for movie in movies {
+    if let Value::Array(media_items) = response {
+        for item in media_items {
             let mut result = Vec::new();
             // Get title and year
-            if let (Value::String(title), Value::Number(year)) = (&movie["title"], &movie["year"]) {
+            if let (Value::String(title), Value::Number(year)) = (&item["title"], &item["year"]) {
                 result.push(format!("{title} ({year})"));
             }
             // Get id and availability
-            if let Value::Number(id) = &movie["id"] {
-                if id.as_u64().unwrap() != 0 {
-                    result.push("available on the server".to_string());
-                    result.push(format!("radarr id {}", id));
-                } else {
+            if let Value::Number(id) = &item["id"] {
+                if id.as_u64().unwrap() == 0 {
                     result.push("unavailable on the server".to_string());
+                } else {
+                    result.push("available on the server".to_string());
+                    result.push(format!("{media_type} id {id}"));
                 }
             } else {
                 result.push("unavailable on the server".to_string());
             }
             // Get quality
-            if let Value::Number(quality_profile_id) = &movie["qualityProfileId"] {
-                if let Some(quality_profile_id_u8) = quality_profile_id.as_u64().map(|id| id as u8)
-                {
-                    if let Some(quality) = quality_profiles.get(&quality_profile_id_u8) {
-                        result.push(format!("requested at quality {}", quality));
+            if let Value::Number(quality_profile_id) = &item["qualityProfileId"] {
+                if let Some(quality_profile_id_u64) = quality_profile_id.as_u64() {
+                    if let Some(quality) = quality_profiles.get(&quality_profile_id_u64) {
+                        result.push(format!("requested at quality {quality}"));
                     }
                 }
             }
-            // Get tmdbId
-            if let Value::Number(tmdb_id) = &movie["tmdbId"] {
-                result.push(format!("tmdbId {}", tmdb_id));
-            }
-            // Get file info
-            if movie["hasFile"].as_bool().unwrap_or(false) {
-                if let Value::Number(size_on_disk) = &movie["sizeOnDisk"] {
-                    result.push(format!(
-                        "file size {}",
-                        sizeof_fmt(size_on_disk.as_u64().unwrap())
-                    ));
-                }
-                let movie_file = &movie["movieFile"];
-                if let Value::String(resolution) = &movie_file["mediaInfo"]["resolution"] {
-                    result.push(format!("file resolution {}", resolution));
-                }
-                if let Value::String(edition) = &movie_file["edition"] {
-                    if !edition.is_empty() {
-                        result.push(format!("file edition {}", edition));
+            match media_type {
+                Format::Movie => {
+                    // Get tmdbId
+                    if let Value::Number(tmdb_id) = &item["tmdbId"] {
+                        result.push(format!("tmdbId {tmdb_id}"));
+                    };
+                    // Get movie file info
+                    if item["hasFile"].as_bool().unwrap_or(false) {
+                        if let Value::Number(size_on_disk) = &item["sizeOnDisk"] {
+                            result.push(format!(
+                                "file size {}",
+                                sizeof_fmt(size_on_disk.as_f64().unwrap())
+                            ));
+                        }
+                        let movie_file = &item["movieFile"];
+                        if let Value::String(resolution) = &movie_file["mediaInfo"]["resolution"] {
+                            result.push(format!("file resolution {resolution}"));
+                        }
+                        if let Value::String(edition) = &movie_file["edition"] {
+                            if !edition.is_empty() {
+                                result.push(format!("file edition {edition}"));
+                            }
+                        }
+                    } else {
+                        result.push("no file on disk".to_string());
                     }
                 }
-            } else {
-                result.push("no file on disk".to_string());
-            }
-            results.push(result.join(";"));
-
-            if results.len() >= num {
-                break;
-            }
-        }
-    }
-    results.join("\n")
-}
-
-/// Convert json of series data to plain english
-fn series_to_plain_english(response: Value, num: usize) -> String {
-    let quality_profiles: HashMap<u8, &str> = [
-        (2, "SD"),
-        (3, "720p"),
-        (4, "1080p"),
-        (5, "2160p"),
-        (6, "720p/1080p"),
-        (7, "Any"),
-    ]
-    .iter()
-    .cloned()
-    .collect();
-
-    let mut results = Vec::new();
-    if let Value::Array(movies) = response {
-        for movie in movies {
-            let mut result = Vec::new();
-            // Get title and year
-            if let (Value::String(title), Value::Number(year)) = (&movie["title"], &movie["year"]) {
-                result.push(format!("{title} ({year})"));
-            }
-            // Get id and availability
-            if let Value::Number(id) = &movie["id"] {
-                if id.as_u64().unwrap() != 0 {
-                    result.push("available on the server".to_string());
-                    result.push(format!("sonarr id {}", id));
-                } else {
-                    result.push("unavailable on the server".to_string());
-                }
-            } else {
-                result.push("unavailable on the server".to_string());
-            }
-            // Get quality
-            if let Value::Number(quality_profile_id) = &movie["qualityProfileId"] {
-                if let Some(quality_profile_id_u8) = quality_profile_id.as_u64().map(|id| id as u8)
-                {
-                    if let Some(quality) = quality_profiles.get(&quality_profile_id_u8) {
-                        result.push(format!("requested at quality {}", quality));
+                Format::Series => {
+                    // Get tvdbId
+                    if let Value::Number(tvdb_id) = &item["tvdbId"] {
+                        result.push(format!("tvdbId {tvdb_id}"));
                     }
                 }
-            }
-            // Get tvdbId
-            if let Value::Number(tmdb_id) = &movie["tvdbId"] {
-                result.push(format!("tvdbId {}", tmdb_id));
             }
             results.push(result.join(";"));
 

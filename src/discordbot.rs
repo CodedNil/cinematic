@@ -11,6 +11,28 @@ pub struct Handler;
 
 use crate::chatbot;
 
+static REPLY_MESSAGES: &[&str] = &[
+    "Hey there! Super excited to process your message, give me just a moment... 🎬",
+    "Oh, a message! Can't wait to dive into this one - I'm on it... 🎥",
+    "Hey, awesome! A new message to explore! Let me work my media magic... 📺",
+    "Woo-hoo! A fresh message to check out! Let me put my CineMatic touch on it... 🍿",
+    "Yay, another message! Time to unleash my media passion, be right back... 📼",
+    "Hey, a message! I'm so excited to process this one, just a moment... 🎞",
+    "Aha! A message has arrived! Let me roll out the red carpet for it... 🎞️",
+    "Ooh, a new message to dissect! Allow me to unleash my inner film buff... 🎦",
+    "Lights, camera, action! Time to process your message with a cinematic twist... 📽️",
+    "Hooray, a message to dig into! Let's make this a blockbuster experience... 🌟",
+    "Greetings! Your message has caught my eye, let me give it the star treatment... 🎟️",
+    "Popcorn's ready! Let me take a closer look at your message like a true film fanatic... 🍿",
+    "Woohoo! A message to analyze! Let me work on it while humming my favorite movie tunes... 🎶",
+    "A new message to dive into! Let me put on my director's hat and get to work... 🎩",
+    "And... action! Time to process your message with my media expertise... 📹",
+    "Sending your message to the cutting room! Let me work on it like a skilled film editor... 🎞️",
+    "A message has entered the scene! Let me put my media prowess to work on it... 🎭",
+    "Your message is the star of the show! Let me process it with the passion of a true cinephile... 🌟",
+    "Curtain up! Your message takes center stage, and I'm ready to give it a standing ovation... 🎦",
+];
+
 #[async_trait]
 impl EventHandler for Handler {
     // When the bot is ready
@@ -48,7 +70,7 @@ impl EventHandler for Handler {
                     }
                 }
                 Err(error) => {
-                    println!("Error checking mentions: {:?}", error);
+                    println!("Error checking mentions: {error:?}");
                     return;
                 }
             }
@@ -78,25 +100,16 @@ impl EventHandler for Handler {
             {
                 Ok(replied_to) => replied_to,
                 Err(error) => {
-                    println!("Error getting replied to message: {:?}", error);
+                    println!("Error getting replied to message: {error:?}");
                     return;
                 }
             };
-            if replied_to.author.id == bot_user.id {
-                // See if the message is completed
-                if !replied_to.content.contains('✅') {
-                    return;
-                }
-                // See if the message is passed the thread limit
-                let mut count = 0;
-                for c in replied_to.content.chars() {
-                    if c == '☑' {
-                        count += 1;
-                    }
-                }
-                if count > 3 {
-                    return;
-                }
+            // Validate reply
+            let tick_count = replied_to.content.chars().filter(|&c| c == '☑').count();
+            if replied_to.author.id == bot_user.id
+                && replied_to.content.contains('✅')
+                && tick_count <= 3
+            {
                 valid_reply = true;
                 message_history_text =
                     replied_to.content.replace("✅ ", "☑️ ").trim().to_string() + "\n";
@@ -108,6 +121,7 @@ impl EventHandler for Handler {
         if !valid_reply {
             return;
         }
+
         // Add the users message to the message history text
         message_history_text.push_str(&format!("💬 {user_text}\n"));
 
@@ -116,32 +130,11 @@ impl EventHandler for Handler {
         let user_name = msg.author.name.clone();
         println!("Message from {} ({}): {}", user_name, user_id, msg.content);
 
-        let reply_messages = vec![
-            "Hey there! Super excited to process your message, give me just a moment... 🎬",
-            "Oh, a message! Can't wait to dive into this one - I'm on it... 🎥",
-            "Hey, awesome! A new message to explore! Let me work my media magic... 📺",
-            "Woo-hoo! A fresh message to check out! Let me put my CineMatic touch on it... 🍿",
-            "Yay, another message! Time to unleash my media passion, be right back... 📼",
-            "Hey, a message! I'm so excited to process this one, just a moment... 🎞",
-            "Aha! A message has arrived! Let me roll out the red carpet for it... 🎞️",
-            "Ooh, a new message to dissect! Allow me to unleash my inner film buff... 🎦",
-            "Lights, camera, action! Time to process your message with a cinematic twist... 📽️",
-            "Hooray, a message to dig into! Let's make this a blockbuster experience... 🌟",
-            "Greetings! Your message has caught my eye, let me give it the star treatment... 🎟️",
-            "Popcorn's ready! Let me take a closer look at your message like a true film fanatic... 🍿",
-            "Woohoo! A message to analyze! Let me work on it while humming my favorite movie tunes... 🎶",
-            "A new message to dive into! Let me put on my director's hat and get to work... 🎩",
-            "And... action! Time to process your message with my media expertise... 📹",
-            "Sending your message to the cutting room! Let me work on it like a skilled film editor... 🎞️",
-            "A message has entered the scene! Let me put my media prowess to work on it... 🎭",
-            "Your message is the star of the show! Let me process it with the passion of a true cinephile... 🌟",
-            "Curtain up! Your message takes center stage, and I'm ready to give it a standing ovation... 🎦",
-        ];
         // Choose a random reply message
-        let reply_text = reply_messages
+        let reply_text = (*REPLY_MESSAGES
             .choose(&mut rand::thread_rng())
-            .expect("Failed to choose reply message")
-            .to_string();
+            .expect("Failed to choose reply message"))
+        .to_string();
         // Send a reply message to the user
         let bot_message = msg
             .reply(

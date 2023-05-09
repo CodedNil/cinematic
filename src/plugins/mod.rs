@@ -21,19 +21,16 @@ pub struct PluginReturn {
 }
 
 /// Get command processing message
-pub async fn get_processing_message(command: &str) -> String {
+pub fn get_processing_message(command: &str) -> String {
     let args = command.split('~').collect::<Vec<&str>>();
 
-    let result: String = match args[0] {
-        "WEB" => websearch::processing_message(args[1].to_string()).await,
-        "MEM_GET" => memories::processing_message_get(args[1].to_string()).await,
-        "MEM_SET" => memories::processing_message_set(args[1].to_string()).await,
-        "MOVIE_LOOKUP" => media::processing_message_lookup(args[1].to_string()).await,
-        "SERIES_LOOKUP" => media::processing_message_lookup(args[1].to_string()).await,
-        "MOVIE_ADD" => media::processing_message_add(args[1].to_string()).await,
-        "SERIES_ADD" => media::processing_message_add(args[1].to_string()).await,
-        "MOVIE_SETRES" => media::processing_message_setres(args[1].to_string()).await,
-        "SERIES_SETRES" => media::processing_message_setres(args[1].to_string()).await,
+    let result: String = match *args.first().unwrap() {
+        "WEB" => websearch::processing_message(&args[1].to_string()),
+        "MEM_GET" => memories::processing_message_get(&args[1].to_string()),
+        "MEM_SET" => memories::processing_message_set(&args[1].to_string()),
+        "MOVIE_LOOKUP" | "SERIES_LOOKUP" => media::processing_message_lookup(&args[1].to_string()),
+        "MOVIE_ADD" | "SERIES_ADD" => media::processing_message_add(&args[1].to_string()),
+        "MOVIE_SETRES" | "SERIES_SETRES" => media::processing_message_setres(&args[1].to_string()),
         _ => String::from("❌ Unknown command"),
     };
 
@@ -43,24 +40,24 @@ pub async fn get_processing_message(command: &str) -> String {
 /// Run a command with a result
 pub async fn run_command(command: &str, user_id: &String, user_name: &str) -> PluginReturn {
     let args = command.split('~').collect::<Vec<&str>>();
-    println!("Running command: {:?}", args);
+    println!("Running command: {args:?}");
 
-    let result: PluginReturn = match args[0] {
+    let result: PluginReturn = match *args.first().unwrap() {
         "WEB" => websearch::ai_search(args[1].to_string()).await,
         "MEM_GET" => memories::memory_get(args[1].to_string(), user_id).await,
         "MEM_SET" => memories::memory_set(args[1].to_string(), user_id, user_name).await,
-        "MOVIE_LOOKUP" => media::movie_lookup(args[1].to_string()).await,
-        "SERIES_LOOKUP" => media::series_lookup(args[1].to_string()).await,
-        "MOVIE_ADD" => media::media_add(media::MediaType::Movie, args[1].to_string()).await,
-        "SERIES_ADD" => media::media_add(media::MediaType::Series, args[1].to_string()).await,
-        "MOVIE_SETRES" => media::media_setres(media::MediaType::Movie, args[1].to_string()).await,
-        "SERIES_SETRES" => media::media_setres(media::MediaType::Series, args[1].to_string()).await,
+        "MOVIE_LOOKUP" => media::lookup(media::Format::Movie, args[1].to_string()).await,
+        "SERIES_LOOKUP" => media::lookup(media::Format::Series, args[1].to_string()).await,
+        "MOVIE_ADD" => media::add(media::Format::Movie, args[1].to_string()).await,
+        "SERIES_ADD" => media::add(media::Format::Series, args[1].to_string()).await,
+        "MOVIE_SETRES" => media::setres(media::Format::Movie, args[1].to_string()).await,
+        "SERIES_SETRES" => media::setres(media::Format::Series, args[1].to_string()).await,
         _ => PluginReturn {
             result: String::from("Unknown command"),
             to_user: String::from("❌ Attempted invalid command"),
         },
     };
-    println!("Command result: {:?}", result);
+    println!("Command result: {result:?}");
 
     result
 }
