@@ -265,8 +265,7 @@ pub async fn run_chat_completition(
         let mut has_output = false;
         for result in &command_results {
             // If there is any text after the second ~ then there is output
-            let parts: Vec<&str> = result.split('~').collect();
-            if parts.len() > 2 {
+            if result.split('~').count() > 2 {
                 has_output = true;
                 break;
             }

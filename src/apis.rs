@@ -15,8 +15,8 @@ pub enum ArrService {
 impl std::fmt::Display for ArrService {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ArrService::Sonarr => write!(f, "sonarr"),
-            ArrService::Radarr => write!(f, "radarr"),
+            Self::Sonarr => write!(f, "sonarr"),
+            Self::Radarr => write!(f, "radarr"),
         }
     }
 }

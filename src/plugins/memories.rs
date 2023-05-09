@@ -13,7 +13,7 @@ pub fn processing_message_get(query: &String) -> String {
     format!("🧠 Looking in memories for query {query}")
 }
 pub fn processing_message_set(query: &String) -> String {
-    format!("🧠 Settings memories for query {query}")
+    format!("🧠 Setting memories for query {query}")
 }
 
 /// Perform a search with ai processing to answer a prompt
@@ -61,10 +61,8 @@ pub async fn memory_set(search: String, user_id: &String, user_name: &str) -> Pl
         };
 
     // Read memories.toml, parse it to toml::Value, then get the memories of the user_id, then get the key within that
-    let memory_value = match get_memory_key(user_id, key) {
-        Ok(value) => value,
-        Err(_) => String::new(),
-    };
+    let memory_value: String =
+        get_memory_key(user_id, key).map_or_else(|_| String::new(), |value| value);
 
     // Search with gpt through the memories to answer the query
     let response = apis::gpt_info_query("gpt-4".to_string(), memory_value, format!("Rewrite the memory with the new information\n{query}\nReturn the new memory in ; separated list format")).await;

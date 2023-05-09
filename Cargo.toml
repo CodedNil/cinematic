@@ -2,25 +2,29 @@
 name = "cinematic"
 version = "0.1.0"
 edition = "2021"
+license = "GPL-3.0"
+description = "CineMatic is a powerful and user-friendly Discord bot that allows users to manage their media collections. With its advanced features, Cinematic can help you make changes to your media server, view available content, and even answer questions related to your media collection."
+repository = "https://github.com/CodedNil/CineMatic"
+keywords = ["discord", "media-server"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-openai = "0.10.3"
-chrono = "0.4.24"
-futures = "0.3.28"
-rand = "0.8.5"
-regex = "1.8.1"
-reqwest = "0.11.17"
-scraper = "0.16.0"
-serde = "1.0.160"
-serde_json = "1.0.96"
-serenity = { version = "0.11.5", default-features = false, features = [
+async-openai = "0.10"
+chrono = "0.4"
+futures = "0.3"
+rand = "0.8"
+regex = "1.8"
+reqwest = "0.11"
+scraper = "0.16"
+serde = "1.0"
+serde_json = "1.0"
+serenity = { version = "0.11", default-features = false, features = [
     "client",
     "gateway",
     "rustls_backend",
     "model",
 ] }
-tiktoken-rs = "0.4.2"
-tokio = { version = "1.28.0", features = ["macros", "rt-multi-thread"] }
-toml = "0.7.3"
+tiktoken-rs = "0.4"
+tokio = { version = "1.28", features = ["macros", "rt-multi-thread"] }
+toml = "0.7"
