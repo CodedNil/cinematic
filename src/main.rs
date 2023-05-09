@@ -9,10 +9,6 @@ mod plugins;
 
 #[tokio::main]
 async fn main() {
-
-    let user_names = vec!["user1", "user2", "user3"];
-    apis::sync_user_tags(user_names).await;
-
     let discord_token: String = apis::get_discord_token();
     // Set gateway intents, which decides what events the bot will be notified about
     let intents: GatewayIntents = GatewayIntents::GUILD_MESSAGES

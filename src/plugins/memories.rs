@@ -84,10 +84,17 @@ pub async fn memory_set(search: String, user_id: &String, user_name: &str) -> Pl
         .unwrap()
         .as_table_mut()
         .unwrap();
-    user_memories.insert(
-        String::from("name"),
-        toml::Value::String(user_name.to_string()),
-    );
+    // If doesn't have name, add it
+    if !user_memories.contains_key("name") {
+        // Convert name to plaintext alphanumeric only with gpt
+        let response = apis::gpt_info_query(
+            "gpt-4".to_string(),
+            user_name.to_string(),
+            "Convert the above name to plaintext alphanumeric only".to_string(),
+        )
+        .await;
+        user_memories.insert(String::from("name"), toml::Value::String(response.unwrap()));
+    }
     user_memories.insert(key.to_string(), toml::Value::String(new_memory));
     contents = toml::to_string(&parsed_toml).unwrap();
     std::fs::write("memories.toml", contents).unwrap();
