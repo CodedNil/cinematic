@@ -1,3 +1,5 @@
+//! Manages the main chat loop
+
 use serenity::{model::channel::Message as DiscordMessage, prelude::Context as DiscordContext};
 
 use async_openai::types::{
@@ -20,8 +22,8 @@ async fn execute_command(
     command_replies_lock: Arc<Mutex<Vec<String>>>,
     extra_message_history_lock: Arc<Mutex<String>>,
 ) {
-    let command_replies_lock = Arc::clone(&command_replies_lock);
-    let extra_message_history_lock = Arc::clone(&extra_message_history_lock);
+    let command_replies_lock_c = Arc::clone(&command_replies_lock);
+    let extra_message_history_lock_c = Arc::clone(&extra_message_history_lock);
 
     tokio::spawn(async move {
         // Add the processing message in the discord message
@@ -35,11 +37,11 @@ async fn execute_command(
         let command_reply = format!("{command}~{result}", result = reply.result);
         // Push the command plus reply into the mutex
         let mut command_replies: std::sync::MutexGuard<Vec<String>> =
-            command_replies_lock.lock().unwrap();
+        command_replies_lock_c.lock().unwrap();
         command_replies.push(command_reply);
 
         // Remove processing message, {processing_msg}\n with replace
-        let mut history = extra_message_history_lock.lock().unwrap();
+        let mut history = extra_message_history_lock_c.lock().unwrap();
         let range = history
             .rfind(format!("{processing_msg}\n").as_str())
             .unwrap()..;

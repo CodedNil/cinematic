@@ -1,3 +1,5 @@
+//! Plugin to check the relevance of a message and deny it if it is not relevant
+
 use crate::apis;
 use async_openai::types::{
     ChatCompletionRequestMessageArgs, CreateChatCompletionRequestArgs,

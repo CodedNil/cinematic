@@ -1,3 +1,5 @@
+//! Access to the apis for getting api keys, making requests to openai, and sonarr/radarr
+
 use reqwest::Method;
 use std::fs::File;
 use std::io::prelude::*;
@@ -38,6 +40,18 @@ fn get_credentials() -> toml::Value {
     let cred: toml::Value = contents.parse().expect("Failed to parse credentials TOML");
 
     cred
+}
+
+/// Get discord token
+pub fn get_discord_token() -> String {
+    let cred = get_credentials();
+
+    // Configure the client with your Discord bot token
+    let discord_token: String = cred["discord_token"]
+        .as_str()
+        .expect("Expected a discord_token in the credentials.toml file")
+        .to_owned();
+    discord_token
 }
 
 /// Get openai client

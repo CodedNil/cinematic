@@ -1,8 +1,6 @@
-use serenity::prelude::{Client as DiscordClient, GatewayIntents};
+//! Creates the discord client and starts listening for events.
 
-use std::fs::File;
-use std::io::prelude::*;
-use toml::Value;
+use serenity::prelude::{Client as DiscordClient, GatewayIntents};
 
 mod apis;
 mod chatbot;
@@ -11,18 +9,7 @@ mod plugins;
 
 #[tokio::main]
 async fn main() {
-    // Read credentials.toml file to get keys
-    let mut file = File::open("credentials.toml").expect("Failed to open credentials file");
-    let mut contents = String::new();
-    file.read_to_string(&mut contents)
-        .expect("Failed to read credentials file");
-    let cred: Value = contents.parse().expect("Failed to parse credentials TOML");
-
-    // Configure the client with your Discord bot token
-    let discord_token: String = cred["discord_token"]
-        .as_str()
-        .expect("Expected a discord_token in the credentials.toml file")
-        .to_string();
+    let discord_token: String = apis::get_discord_token();
     // Set gateway intents, which decides what events the bot will be notified about
     let intents: GatewayIntents = GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::DIRECT_MESSAGES

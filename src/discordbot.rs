@@ -1,3 +1,5 @@
+//! Manages the discord bot and basic chat events
+
 use serenity::{
     async_trait,
     model::{channel::Message as DiscordMessage, gateway::Ready},
@@ -11,6 +13,7 @@ pub struct Handler;
 
 use crate::chatbot;
 
+/// A list of messages to reply with while waiting for AI
 static REPLY_MESSAGES: &[&str] = &[
     "Hey there! Super excited to process your message, give me just a moment... 🎬",
     "Oh, a message! Can't wait to dive into this one - I'm on it... 🎥",

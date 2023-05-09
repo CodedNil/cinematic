@@ -1,3 +1,5 @@
+//! Plugin to store and retrieve memories per user
+
 use crate::{apis, plugins::PluginReturn};
 
 // Plugins data

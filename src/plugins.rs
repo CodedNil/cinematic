@@ -1,3 +1,5 @@
+//! Plugins interface for the chatbot
+
 pub mod media;
 pub mod memories;
 pub mod relevance;

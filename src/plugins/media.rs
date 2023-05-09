@@ -1,3 +1,5 @@
+//! Media plugin for lookups, adding, editing movies and series
+
 use crate::{apis, plugins::PluginReturn};
 
 use serde_json::Value;

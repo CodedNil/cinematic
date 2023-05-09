@@ -1,3 +1,5 @@
+//! Web search plugin
+
 use regex::Regex;
 use reqwest;
 use scraper::{Html, Selector};
