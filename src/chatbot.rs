@@ -37,7 +37,7 @@ async fn execute_command(
         let command_reply = format!("{command}~{result}", result = reply.result);
         // Push the command plus reply into the mutex
         let mut command_replies: std::sync::MutexGuard<Vec<String>> =
-        command_replies_lock_c.lock().unwrap();
+            command_replies_lock_c.lock().unwrap();
         command_replies.push(command_reply);
 
         // Remove processing message, {processing_msg}\n with replace
@@ -311,13 +311,12 @@ pub async fn run_chat_completition(
 
 /// Process the chat message from the user
 pub async fn process_chat(
-    user_name: String,               // The users name
-    user_id: String,                 // The users id
-    user_text: String,               // Users text to bot
-    ctx: DiscordContext,             // The discord context
-    mut bot_message: DiscordMessage, // The message reply to the user
+    user_name: String,            // The users name
+    user_id: String,              // The users id
+    user_text: String,            // Users text to bot
+    ctx: DiscordContext,          // The discord context
+    bot_message: DiscordMessage,  // The message reply to the user
     message_history_text: String, // The message history text, each starts with emoji identifying role
-    reply_text: String, // The text used in the reply while processing "Hey there I am processing your request"
 ) {
     // Go through each line of message_history_text, if it starts with 💬 add it to user_text_total
     let mut user_text_total = String::new();
@@ -328,26 +327,6 @@ pub async fn process_chat(
     }
     // Add the users latest message
     user_text_total.push_str(&user_text);
-
-    // Don't reply to non media queries, compare user_text_total with the ai model
-    if !plugins::relevance::check(user_text_total.clone()).await {
-        // Edit the message to let the user know the message is not valid
-        bot_message
-            .edit(&ctx.http, |msg: &mut serenity::builder::EditMessage| {
-                msg.content(format!("{message_history_text}❌ Hi, I'm a media bot. I can help you with media related questions. What would you like to know or achieve?"))
-            })
-            .await
-            .unwrap();
-        return;
-    }
-
-    // Edit the bot_message to let the user know it is progressing
-    bot_message
-        .edit(&ctx.http, |msg| {
-            msg.content(format!("{message_history_text}⌛ 2/2 {reply_text}"))
-        })
-        .await
-        .unwrap();
 
     // Run chat completion
     run_chat_completition(

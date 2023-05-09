@@ -2,7 +2,6 @@
 
 pub mod media;
 pub mod memories;
-pub mod relevance;
 pub mod websearch;
 
 /// Get data for plugins

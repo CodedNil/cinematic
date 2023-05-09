@@ -140,10 +140,7 @@ impl EventHandler for Handler {
         .to_string();
         // Send a reply message to the user
         let bot_message = msg
-            .reply(
-                &ctx.http,
-                format!("{message_history_text}⌛ 1/2 {reply_text}"),
-            )
+            .reply(&ctx.http, format!("{message_history_text}⌛ {reply_text}"))
             .await
             .expect("Failed to send message");
 
@@ -158,7 +155,6 @@ impl EventHandler for Handler {
                 ctx_clone,
                 bot_message,
                 message_history_text,
-                reply_text,
             )
             .await;
         });
