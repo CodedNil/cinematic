@@ -315,7 +315,7 @@ async fn get_media_info(
                 apis::ArrService::Radarr,
             ),
             Format::Series => (
-                format!("/api/v3/series/lookup/tmdb?tmdbId={id}"),
+                format!("/api/v3/series/lookup?term=tvdbId {id}"),
                 apis::ArrService::Sonarr,
             ),
         }
