@@ -22,18 +22,18 @@ impl std::fmt::Display for Format {
 // Plugins data
 pub fn get_plugin_data() -> String {
     "[MOVIES_LOOKUP~query] Searches for a movie or movies from a query for example \"is iron man on? is watchmen the ultimate cut?\"
-[SERIES_LOOKUP~query] Query should be phrased as a question \"What is Cats movie tmdbId\" etc
+[SERIES_LOOKUP~query] Query should be phrased as a question \"What is Cats movie tmdbId\" \"Who added game of thrones?\" etc
 [MOVIES_ADD~tmdbId;quality] Adds a movie to the server from the name, always needs to first lookup asking for tmdbId, can specify resolution, defaults to adding in 1080p, options are SD, 720p, 1080p, 2160p
 [SERIES_ADD~tvdbId;quality]
 [MOVIES_REMOVE~tmdbId] Removes a movie or series from that users requests, it stays on the server if anyone else wants it
 [SERIES_REMOVE~tvdbId] Uses tvdbId
 [MOVIES_SETRES~id;quality] Sets the resolution of a series or movie on the server, always needs to first lookup asking for radarr id
 [SERIES_SETRES~id;quality] Uses sonarr id
-[SERIES_WANTED~user] Returns a list of series that user has requested, user can be self for the user that spoke, or none to get a list of series that noone has requested
+[SERIES_WANTED~user] Returns a list of series that user has requested, user can be self for the user that spoke, or none to get a list of series that noone has requested, if user asks have they requested or what they have requested etc
 [MOVIES_WANTED~user] Same as series wanted but for movies
 tmdbId and tvdbId can be found from the lookup commands, ask for it such as [SERIES_LOOKUP~What is game of thrones tvdbId?]
 If user is asking for example \"what mcu movies are on\" then you must do a [WEB~all mcu movies with release date] first to get list of mcu movies, then lookup each in a format like this [MOVIE_LOOKUP~Are these movies on Iron Man 1,Thor 1,Black Widow,...]
-If user queries \"how many gbs do my added movies take up\" look up the memories of what movies the user has added, then lookup on the server to get file size of each".to_string()
+If user queries \"how many gbs do my added movies take up\" look up the users wanted, then lookup on the server to get file size of each".to_string()
 }
 
 /// Get processing message
@@ -90,7 +90,7 @@ pub async fn lookup(media_type: Format, query: String) -> PluginReturn {
     for search in arr_searches {
         let search_results = search.clone();
         // Trim the searches so each only contains 5 results max and output plain english
-        media_strings.push(media_to_plain_english(&media_type, search_results, 5));
+        media_strings.push(media_to_plain_english(&media_type, search_results, 5).await);
     }
 
     // Search with gpt through series and movies to get ones of relevance
@@ -646,7 +646,8 @@ fn sizeof_fmt(mut num: f64) -> String {
 }
 
 /// Convert json of movies/series data to plain english
-fn media_to_plain_english(media_type: &Format, response: Value, num: usize) -> String {
+#[allow(clippy::too_many_lines)]
+async fn media_to_plain_english(media_type: &Format, response: Value, num: usize) -> String {
     let quality_profiles: HashMap<u64, &str> = [
         (2, "SD"),
         (3, "720p"),
@@ -684,6 +685,42 @@ fn media_to_plain_english(media_type: &Format, response: Value, num: usize) -> S
                     if let Some(quality) = quality_profiles.get(&quality_profile_id_u64) {
                         result.push(format!("requested at quality {quality}"));
                     }
+                }
+            }
+            // Get tags added-users
+            if let Value::Array(tags) = &item["tags"] {
+                // Get all current tags
+                let all_tags: Value = apis::arr_request(
+                    apis::HttpMethod::Get,
+                    match media_type {
+                        Format::Movie => apis::ArrService::Radarr,
+                        Format::Series => apis::ArrService::Sonarr,
+                    },
+                    "/api/v3/tag".to_string(),
+                    None,
+                )
+                .await;
+                // Get tags added-users
+                let mut tag_labels = String::new();
+                for tag in tags {
+                    if let Value::Number(tag_id) = tag {
+                        for all_tag in all_tags.as_array().unwrap() {
+                            if let (Some(id), Some(label)) =
+                                (all_tag.get("id"), all_tag.get("label"))
+                            {
+                                if id.as_u64() == tag_id.as_u64() {
+                                    if !tag_labels.is_empty() {
+                                        tag_labels.push_str(", ");
+                                    }
+                                    tag_labels.push_str(label.as_str().unwrap());
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                if !tag_labels.is_empty() {
+                    result.push(format!("added by {tag_labels}"));
                 }
             }
             match media_type {

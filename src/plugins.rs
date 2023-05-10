@@ -55,8 +55,8 @@ pub async fn run_command(command: &str, user_id: &String, user_name: &str) -> Pl
     };
     let result: PluginReturn = match first_arg {
         "WEB" => websearch::ai_search(second_arg).await,
-        "MEM_GET" => memories::memory_get(second_arg, user_id).await,
-        "MEM_SET" => memories::memory_set(second_arg, user_id, user_name).await,
+        "MEM_GET" => memories::memory_get(&second_arg, user_id).await,
+        "MEM_SET" => memories::memory_set(&second_arg, user_id, user_name).await,
         "MOVIES_LOOKUP" | "SERIES_LOOKUP" => media::lookup(format, second_arg).await,
         "MOVIES_ADD" | "SERIES_ADD" => media::add(format, second_arg, user_id, user_name).await,
         "MOVIES_SETRES" | "SERIES_SETRES" => media::setres(format, second_arg).await,
