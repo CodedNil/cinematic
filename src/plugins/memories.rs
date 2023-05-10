@@ -6,8 +6,8 @@ use crate::{apis, plugins::PluginReturn};
 pub fn get_plugin_data() -> String {
     "[MEM_GET~key;query]: Looks in users memories for a [key;query], replies with the answered query
 [MEM_SET~key;query]: Updates a users memories with a [key;query]
-Valid keys are series (what series they want available), movies (what movies they want available), opinions (if user liked show, their rating etc, store lots here)
-Examples: [MEM_SET~series;wants The Office] will add The Office to the users series wants [MEM_GET~opinions;liked avatar?] [MEM_SET~movies;Rated Iron Man 7/10]".to_string()
+Valid keys are opinions, ratings, watched, etc, add lots of memories for users based on what they say
+Examples: [MEM_SET~watched;wants The Office] will add The Office to the users watch history [MEM_GET~ratings;liked avatar?] [MEM_SET~ratings;Rated Iron Man 7/10]".to_string()
 }
 
 /// Get processing message

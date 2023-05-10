@@ -25,13 +25,16 @@ pub struct PluginReturn {
 pub fn get_processing_message(command: &str) -> String {
     let args = command.split('~').collect::<Vec<&str>>();
 
+    let second_arg: String = (*args.get(1).unwrap_or(&"")).to_string();
     let result: String = match *args.first().unwrap() {
-        "WEB" => websearch::processing_message(&args[1].to_string()),
-        "MEM_GET" => memories::processing_message_get(&args[1].to_string()),
-        "MEM_SET" => memories::processing_message_set(&args[1].to_string()),
-        "MOVIE_LOOKUP" | "SERIES_LOOKUP" => media::processing_message_lookup(&args[1].to_string()),
-        "MOVIE_ADD" | "SERIES_ADD" => media::processing_message_add(&args[1].to_string()),
-        "MOVIE_SETRES" | "SERIES_SETRES" => media::processing_message_setres(&args[1].to_string()),
+        "WEB" => websearch::processing_message(&second_arg),
+        "MEM_GET" => memories::processing_message_get(&second_arg),
+        "MEM_SET" => memories::processing_message_set(&second_arg),
+        "MOVIES_LOOKUP" | "SERIES_LOOKUP" => media::processing_message_lookup(&second_arg),
+        "MOVIES_ADD" | "SERIES_ADD" => media::processing_message_add(&second_arg),
+        "MOVIES_SETRES" | "SERIES_SETRES" => media::processing_message_setres(&second_arg),
+        "MOVIES_REMOVE" | "SERIES_REMOVE" => media::processing_message_remove(&second_arg),
+        "MOVIES_WANTED" | "SERIES_WANTED" => media::processing_message_wanted(&second_arg),
         _ => String::from("❌ Unknown command"),
     };
 
@@ -45,16 +48,24 @@ pub async fn run_command(command: &str, user_id: &String, user_name: &str) -> Pl
 
     let first_arg = *args.first().unwrap();
     let second_arg: String = (*args.get(1).unwrap_or(&"")).to_string();
+    let format: media::Format = if first_arg.starts_with("SERIES") {
+        media::Format::Series
+    } else {
+        media::Format::Movie
+    };
     let result: PluginReturn = match first_arg {
         "WEB" => websearch::ai_search(second_arg).await,
         "MEM_GET" => memories::memory_get(second_arg, user_id).await,
         "MEM_SET" => memories::memory_set(second_arg, user_id, user_name).await,
-        "MOVIE_LOOKUP" => media::lookup(media::Format::Movie, second_arg).await,
-        "SERIES_LOOKUP" => media::lookup(media::Format::Series, second_arg).await,
-        "MOVIE_ADD" => media::add(media::Format::Movie, second_arg, user_id, user_name).await,
-        "SERIES_ADD" => media::add(media::Format::Series, second_arg, user_id, user_name).await,
-        "MOVIE_SETRES" => media::setres(media::Format::Movie, second_arg).await,
-        "SERIES_SETRES" => media::setres(media::Format::Series, second_arg).await,
+        "MOVIES_LOOKUP" | "SERIES_LOOKUP" => media::lookup(format, second_arg).await,
+        "MOVIES_ADD" | "SERIES_ADD" => media::add(format, second_arg, user_id, user_name).await,
+        "MOVIES_SETRES" | "SERIES_SETRES" => media::setres(format, second_arg).await,
+        "MOVIES_REMOVE" | "SERIES_REMOVE" => {
+            media::remove(format, second_arg, user_id, user_name).await
+        }
+        "MOVIES_WANTED" | "SERIES_WANTED" => {
+            media::wanted(format, second_arg, user_id, user_name).await
+        }
         _ => PluginReturn {
             result: String::from("Unknown command"),
             to_user: String::from("❌ Attempted invalid command"),
