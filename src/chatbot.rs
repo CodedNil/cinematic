@@ -40,14 +40,23 @@ async fn execute_command(
             command_replies_lock_c.lock().unwrap();
         command_replies.push(command_reply);
 
+        // Get a clone of the history String within the Mutex
+        let mut history = {
+            let history_lock = extra_message_history_lock_c.lock().unwrap();
+            history_lock.clone()
+        };
+
         // Remove processing message, {processing_msg}\n with replace
-        let mut history = extra_message_history_lock_c.lock().unwrap();
-        let range = history
-            .rfind(format!("{processing_msg}\n").as_str())
-            .unwrap()..;
-        history.replace_range(range, "");
+        history = history.replace(format!("{processing_msg}\n").as_str(), "");
+
         // Add the reply to user in the discord message
         history.push_str(format!("{}\n", reply.to_user).as_str());
+
+        // Update the Mutex with the new history:
+        {
+            let mut history_lock = extra_message_history_lock_c.lock().unwrap();
+            *history_lock = history.clone();
+        }
     });
 }
 

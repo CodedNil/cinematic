@@ -22,7 +22,7 @@ impl std::fmt::Display for Format {
 // Plugins data
 pub fn get_plugin_data() -> String {
     "[MOVIES_LOOKUP~query] Searches for a movie or movies from a query for example \"is iron man on? is watchmen the ultimate cut?\"
-[SERIES_LOOKUP~query] Query should be phrased as a question \"What is Cats movie tmdbId\" \"Who added game of thrones?\" etc
+[SERIES_LOOKUP~query] Query should be phrased as a question \"What is Cats movie tmdbId\" \"Who added game of thrones?\" etc, if multiple results are found, ask user for clarification
 [MOVIES_ADD~tmdbId;quality] Adds a movie to the server from the name, always needs to first lookup asking for tmdbId, can specify resolution, defaults to adding in 1080p, options are SD, 720p, 1080p, 2160p
 [SERIES_ADD~tvdbId;quality]
 [MOVIES_REMOVE~tmdbId] Removes a movie or series from that users requests, it stays on the server if anyone else wants it
