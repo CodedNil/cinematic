@@ -109,14 +109,9 @@ pub async fn lookup(media_type: Format, query: String) -> PluginReturn {
 }
 
 /// Add media to the server
-pub async fn add(
-    media_type: Format,
-    query: String,
-    user_id: &String,
-    user_name: &str,
-) -> PluginReturn {
+pub async fn add(media_type: Format, query: String, user_name: &str) -> PluginReturn {
     let (mut media, id, quality_profile_id, quality) =
-        match get_media_info(media_type.clone(), query.clone(), true).await {
+        match get_media_info(media_type.clone(), query.clone(), true, true).await {
             Ok(media_info) => media_info,
             Err(err) => {
                 return PluginReturn {
@@ -126,7 +121,7 @@ pub async fn add(
             }
         };
 
-    let tag_id = get_user_tag_id(media_type.clone(), user_id, user_name).await;
+    let tag_id = get_user_tag_id(media_type.clone(), user_name).await;
 
     // Check if media is already on the server
     if let Value::Number(id) = &media["id"] {
@@ -206,7 +201,7 @@ pub async fn add(
 /// Set the resolution of media
 pub async fn setres(media_type: Format, query: String) -> PluginReturn {
     let (mut media, id, quality_profile_id, quality) =
-        match get_media_info(media_type.clone(), query.clone(), false).await {
+        match get_media_info(media_type.clone(), query.clone(), true, false).await {
             Ok(media_info) => media_info,
             Err(err) => {
                 return PluginReturn {
@@ -275,14 +270,9 @@ pub async fn push(media_type: Format, media_json: Value) {
 }
 
 /// Remove wanted tag from media for user
-pub async fn remove(
-    media_type: Format,
-    query: String,
-    user_id: &String,
-    user_name: &str,
-) -> PluginReturn {
+pub async fn remove(media_type: Format, query: String, user_name: &str) -> PluginReturn {
     let (media, id, _quality_profile_id, _quality) =
-        match get_media_info(media_type.clone(), query.clone(), true).await {
+        match get_media_info(media_type.clone(), query.clone(), false, true).await {
             Ok(media_info) => media_info,
             Err(err) => {
                 return PluginReturn {
@@ -292,7 +282,7 @@ pub async fn remove(
             }
         };
 
-    let tag_id: Option<u64> = get_user_tag_id(media_type.clone(), user_id, user_name).await;
+    let tag_id: Option<u64> = get_user_tag_id(media_type.clone(), user_name).await;
 
     // Check if media is already on the server
     if let Value::Number(id) = &media["id"] {
@@ -323,12 +313,7 @@ pub async fn remove(
 }
 
 /// Check for media the user wants
-pub async fn wanted(
-    media_type: Format,
-    query: String,
-    user_id: &String,
-    user_name: &str,
-) -> PluginReturn {
+pub async fn wanted(media_type: Format, query: String, user_name: &str) -> PluginReturn {
     if query.to_lowercase() == "none" {
         let none_media = get_media_with_no_user_tags(media_type.clone())
             .await
@@ -339,7 +324,7 @@ pub async fn wanted(
         };
     }
     let user: String = if query == "self" {
-        user_name_from_id(user_id, user_name).await.unwrap()
+        user_name.to_string()
     } else {
         query.to_lowercase()
     };
@@ -352,47 +337,8 @@ pub async fn wanted(
     }
 }
 
-/// Get from the memories file the users name if it exists, cleaned up string
-async fn user_name_from_id(user_id: &String, user_name_dirty: &str) -> Option<String> {
-    let contents = std::fs::read_to_string("memories.toml");
-    if contents.is_err() {
-        return None;
-    }
-    let parsed_toml: toml::Value = contents.unwrap().parse().unwrap();
-    let user = parsed_toml.get(user_id)?;
-    // If doesn't have the name, add it and write the file
-    if !user.as_table().unwrap().contains_key("name") {
-        // Convert name to plaintext alphanumeric only with gpt
-        let response = apis::gpt_info_query(
-            "gpt-4".to_string(),
-            user_name_dirty.to_string(),
-            "Convert the above name to plaintext alphanumeric only".to_string(),
-        )
-        .await;
-        if response.is_err() {
-            return None;
-        }
-        // Write file
-        let name = response.unwrap();
-        let mut user = user.as_table().unwrap().clone();
-        user.insert("name".to_string(), toml::Value::String(name));
-        let mut parsed_toml = parsed_toml.as_table().unwrap().clone();
-        parsed_toml.insert(user_id.to_string(), toml::Value::Table(user));
-        let toml_string = toml::to_string(&parsed_toml).unwrap();
-        std::fs::write("memories.toml", toml_string).unwrap();
-    }
-    // Return clean name
-    let user_name = user.get("name").unwrap().as_str().unwrap().to_string();
-    Some(user_name)
-}
-
 /// Get user tag id
-async fn get_user_tag_id(media_type: Format, user_id: &String, user_name: &str) -> Option<u64> {
-    // Get user name clean
-    let user_name = user_name_from_id(user_id, user_name)
-        .await
-        .unwrap_or(user_name.to_string());
-
+async fn get_user_tag_id(media_type: Format, user_name: &str) -> Option<u64> {
     // Sync then get all current tags
     let service = match media_type {
         Format::Movie => apis::ArrService::Radarr,
@@ -409,6 +355,7 @@ async fn get_user_tag_id(media_type: Format, user_id: &String, user_name: &str) 
     // Get id for users tag [{id: 1, label: "added-username"}]
     if let Value::Array(tags) = &all_tags {
         for tag in tags {
+            // print label and added-user_name
             if tag["label"].as_str() == Some(&format!("added-{user_name}")) {
                 return tag["id"].as_u64();
             }
@@ -524,27 +471,8 @@ async fn get_media_with_user_tag(media_type: Format, user_name: &str) -> Vec<Str
         Format::Movie => ("/api/v3/movie".to_string(), apis::ArrService::Radarr),
         Format::Series => ("/api/v3/series".to_string(), apis::ArrService::Sonarr),
     };
-    // User name to id in memories file if exists
-    let contents = std::fs::read_to_string("memories.toml");
-    if contents.is_err() {
-        return Vec::new();
-    }
-    let parsed_toml: toml::Value = contents.unwrap().parse().unwrap();
-    let mut user_id = None;
-    for (id, user) in parsed_toml.as_table().unwrap() {
-        if !user.as_table().unwrap().contains_key("name") {
-            continue;
-        }
-        if user.get("name").unwrap().as_str().unwrap().to_lowercase() == user_name.to_lowercase() {
-            user_id = Some(id.parse::<u64>().unwrap());
-        }
-    }
-    if user_id.is_none() {
-        return Vec::new();
-    }
-    let user_id: String = user_id.unwrap().to_string();
     // Get user tag id
-    let tag_id = get_user_tag_id(media_type.clone(), &user_id, user_name).await;
+    let tag_id = get_user_tag_id(media_type.clone(), user_name).await;
     // Get all media and return ones the user requested
     let all_media = apis::arr_request(apis::HttpMethod::Get, service, url, None).await;
     let mut media_with_user_tag = Vec::new();
@@ -563,6 +491,7 @@ async fn get_media_with_user_tag(media_type: Format, user_name: &str) -> Vec<Str
 async fn get_media_info(
     media_type: Format,
     query: String,
+    has_resolution: bool,
     is_tmdb: bool, // Is tmdb/tvdb id or sonarr/radarr id
 ) -> Result<(Value, u32, u8, String), String> {
     // Convert query string to id: u32, quality: String, split on ; and convert types, return if error
@@ -605,8 +534,8 @@ async fn get_media_info(
         media = media[0].clone();
     };
 
-    // If is another in the query, get resolution else return as is
-    if query_split.nth(1).is_none() {
+    // If shouldnt search for resolution
+    if !has_resolution {
         return Ok((media, id, 0u8, String::new()));
     }
     // Get quality

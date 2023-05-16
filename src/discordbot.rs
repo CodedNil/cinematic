@@ -12,6 +12,7 @@ use regex::Regex;
 pub struct Handler;
 
 use crate::chatbot;
+use crate::apis;
 
 /// A list of messages to reply with while waiting for AI
 static REPLY_MESSAGES: &[&str] = &[
@@ -131,7 +132,12 @@ impl EventHandler for Handler {
         // Collect users id and name
         let user_id = msg.author.id.to_string();
         let user_name = msg.author.name.clone();
-        println!("Message from {} ({}): {}", user_name, user_id, msg.content);
+        let user_name_cleaned = apis::user_name_from_id(&user_id, &user_name).await;
+        if user_name_cleaned.is_none() {
+            return;
+        }
+        let user_name_cleaned = user_name_cleaned.unwrap();
+        println!("Message from {} ({}): {}", user_name_cleaned, user_id, msg.content);
 
         // Choose a random reply message
         let reply_text = (*REPLY_MESSAGES
@@ -149,7 +155,7 @@ impl EventHandler for Handler {
         // Spawn a new thread to process the message
         tokio::spawn(async move {
             chatbot::process_chat(
-                user_name,
+                user_name_cleaned,
                 user_id,
                 user_text,
                 ctx_clone,

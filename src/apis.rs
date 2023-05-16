@@ -66,6 +66,57 @@ pub fn get_openai() -> OpenAiClient {
     OpenAiClient::new().with_api_key(openai_api_key)
 }
 
+/// Get from the memories file the users name if it exists, cleaned up string
+pub async fn user_name_from_id(user_id: &String, user_name_dirty: &str) -> Option<String> {
+    // Create memories.toml file if doesnt exist
+    if !std::path::Path::new("memories.toml").exists() {
+        let mut file = File::create("memories.toml").expect("Failed to create memories file");
+        file.write_all("".as_bytes())
+            .expect("Failed to write to memories file");
+    }
+    let contents = std::fs::read_to_string("memories.toml");
+    if contents.is_err() {
+        return None;
+    }
+    let mut parsed_toml: toml::Value = contents.unwrap().parse().unwrap();
+    // If doesnt have user, add it and write the file
+    if !parsed_toml.as_table().unwrap().contains_key(user_id) {
+        parsed_toml.as_table_mut().unwrap().insert(
+            user_id.to_string(),
+            toml::Value::Table(toml::value::Table::new()),
+        );
+    }
+    let user = parsed_toml.get(user_id)?;
+    let user_name: String = {
+        // If doesn't have the name, add it and write the file
+        if user.as_table().unwrap().contains_key("name") {
+            user.get("name").unwrap().as_str().unwrap().to_string()
+        } else {
+            // Convert name to plaintext alphanumeric only with gpt
+            let response = gpt_info_query(
+                "gpt-4".to_string(),
+                user_name_dirty.to_string(),
+                "Convert the above name to plaintext alphanumeric only".to_string(),
+            )
+            .await;
+            if response.is_err() {
+                return None;
+            }
+            // Write file
+            let name = response.unwrap();
+            let mut user = user.as_table().unwrap().clone();
+            user.insert("name".to_string(), toml::Value::String(name.clone()));
+            let mut parsed_toml = parsed_toml.as_table().unwrap().clone();
+            parsed_toml.insert(user_id.to_string(), toml::Value::Table(user));
+            let toml_string = toml::to_string(&parsed_toml).unwrap();
+            std::fs::write("memories.toml", toml_string).unwrap();
+            name
+        }
+    };
+    // Return clean name
+    Some(user_name)
+}
+
 /// Use gpt to query information
 pub async fn gpt_info_query(model: String, data: String, prompt: String) -> Result<String, String> {
     let openai = get_openai();
