@@ -10,13 +10,13 @@ keywords = ["discord", "media-server"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-openai = "0.10"
+async-openai = "0.12"
 chrono = "0.4"
 futures = "0.3"
 rand = "0.8"
 regex = "1.8"
 reqwest = "0.11"
-scraper = "0.16"
+scraper = "0.17"
 serde = "1.0"
 serde_json = "1.0"
 serenity = { version = "0.11", default-features = false, features = [
@@ -25,6 +25,6 @@ serenity = { version = "0.11", default-features = false, features = [
     "rustls_backend",
     "model",
 ] }
-tiktoken-rs = "0.4"
+tiktoken-rs = "0.5"
 tokio = { version = "1.28", features = ["macros", "rt-multi-thread"] }
 toml = "0.7"

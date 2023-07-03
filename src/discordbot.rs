@@ -11,8 +11,8 @@ use regex::Regex;
 
 pub struct Handler;
 
-use crate::chatbot;
 use crate::apis;
+use crate::chatbot;
 
 /// A list of messages to reply with while waiting for AI
 static REPLY_MESSAGES: &[&str] = &[
@@ -137,7 +137,10 @@ impl EventHandler for Handler {
             return;
         }
         let user_name_cleaned = user_name_cleaned.unwrap();
-        println!("Message from {} ({}): {}", user_name_cleaned, user_id, msg.content);
+        println!(
+            "Message from {} ({}): {}",
+            user_name_cleaned, user_id, msg.content
+        );
 
         // Choose a random reply message
         let reply_text = (*REPLY_MESSAGES

@@ -4,6 +4,7 @@ use reqwest::Method;
 use std::fs::File;
 use std::io::prelude::*;
 
+use async_openai::config::OpenAIConfig;
 use async_openai::types::{
     ChatCompletionRequestMessageArgs, CreateChatCompletionRequestArgs, Role,
 };
@@ -55,7 +56,7 @@ pub fn get_discord_token() -> String {
 }
 
 /// Get openai client
-pub fn get_openai() -> OpenAiClient {
+pub fn get_openai() -> OpenAiClient<async_openai::config::OpenAIConfig> {
     let cred = get_credentials();
 
     // Configure the client with your openai api key
@@ -63,7 +64,8 @@ pub fn get_openai() -> OpenAiClient {
         .as_str()
         .expect("Expected a openai_api_key in the credentials.toml file")
         .to_string();
-    OpenAiClient::new().with_api_key(openai_api_key)
+    let config = OpenAIConfig::new().with_api_key(openai_api_key);
+    OpenAiClient::with_config(config)
 }
 
 /// Get from the memories file the users name if it exists, cleaned up string
@@ -162,7 +164,8 @@ pub async fn gpt_info_query(model: String, data: String, prompt: String) -> Resu
         .unwrap()
         .message
         .content
-        .clone();
+        .clone()
+        .unwrap();
     Ok(result)
 }
 
