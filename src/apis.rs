@@ -1,5 +1,3 @@
-//! Access to the apis for getting api keys, making requests to openai, and sonarr/radarr
-
 use reqwest::Method;
 use std::fs::File;
 use std::io::prelude::*;
@@ -68,15 +66,15 @@ pub fn get_openai() -> OpenAiClient<async_openai::config::OpenAIConfig> {
     OpenAiClient::with_config(config)
 }
 
-/// Get from the memories file the users name if it exists, cleaned up string
+/// Get from the names file the users name if it exists, cleaned up string
 pub async fn user_name_from_id(user_id: &String, user_name_dirty: &str) -> Option<String> {
-    // Create memories.toml file if doesnt exist
-    if !std::path::Path::new("memories.toml").exists() {
-        let mut file = File::create("memories.toml").expect("Failed to create memories file");
+    // Create names.toml file if doesnt exist
+    if !std::path::Path::new("names.toml").exists() {
+        let mut file = File::create("names.toml").expect("Failed to create names file");
         file.write_all("".as_bytes())
-            .expect("Failed to write to memories file");
+            .expect("Failed to write to names file");
     }
-    let contents = std::fs::read_to_string("memories.toml");
+    let contents = std::fs::read_to_string("names.toml");
     if contents.is_err() {
         return None;
     }
@@ -98,7 +96,7 @@ pub async fn user_name_from_id(user_id: &String, user_name_dirty: &str) -> Optio
             let response = gpt_info_query(
                 "gpt-4".to_string(),
                 user_name_dirty.to_string(),
-                "Convert the above name to plaintext alphanumeric only".to_string(),
+                "Convert the above name to plaintext alphanumeric only, if it is already alphanumeric just return the name".to_string(),
             )
             .await;
             if response.is_err() {
@@ -111,7 +109,7 @@ pub async fn user_name_from_id(user_id: &String, user_name_dirty: &str) -> Optio
             let mut parsed_toml = parsed_toml.as_table().unwrap().clone();
             parsed_toml.insert(user_id.to_string(), toml::Value::Table(user));
             let toml_string = toml::to_string(&parsed_toml).unwrap();
-            std::fs::write("memories.toml", toml_string).unwrap();
+            std::fs::write("names.toml", toml_string).unwrap();
             name
         }
     };
@@ -121,9 +119,6 @@ pub async fn user_name_from_id(user_id: &String, user_name_dirty: &str) -> Optio
 
 /// Use gpt to query information
 pub async fn gpt_info_query(model: String, data: String, prompt: String) -> Result<String, String> {
-    let openai = get_openai();
-
-    // Search with gpt through the memories to answer the query
     let request = CreateChatCompletionRequestArgs::default()
         .model(model)
         .messages([
@@ -144,7 +139,7 @@ pub async fn gpt_info_query(model: String, data: String, prompt: String) -> Resu
     // Retry the request if it fails
     let mut tries = 0;
     let response = loop {
-        let response = openai.chat().create(request.clone()).await;
+        let response = get_openai().chat().create(request.clone()).await;
         if let Ok(response) = response {
             break Ok(response);
         }

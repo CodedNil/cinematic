@@ -1,9 +1,7 @@
-//! Media plugin for lookups, adding, editing movies and series
-
-use crate::{apis, plugins::PluginReturn};
-
+use crate::apis;
 use serde_json::Value;
 use std::collections::HashMap;
+use std::error::Error;
 
 #[derive(Debug, Clone)]
 pub enum Format {
@@ -19,46 +17,8 @@ impl std::fmt::Display for Format {
     }
 }
 
-// Plugins data
-pub fn get_plugin_data() -> String {
-    "[MOVIES_LOOKUP~query] Searches for a movie or movies from a query for example \"is iron man on? is watchmen the ultimate cut?\"
-[SERIES_LOOKUP~query] Query should be phrased as a question \"What is Cats movie tmdbId\" \"Who added game of thrones?\" etc, if multiple results are found, ask user for clarification
-[MOVIES_ADD~tmdbId;quality] Adds a movie to the server from the name, always needs to first lookup asking for tmdbId, can specify resolution, defaults to adding in 1080p, options are SD, 720p, 1080p, 2160p
-[SERIES_ADD~tvdbId;quality]
-[MOVIES_REMOVE~tmdbId] Removes a movie or series from that users requests, it stays on the server if anyone else wants it
-[SERIES_REMOVE~tvdbId] Uses tvdbId
-[MOVIES_SETRES~id;quality] Sets the resolution of a series or movie on the server, always needs to first lookup asking for radarr id
-[SERIES_SETRES~id;quality] Uses sonarr id
-[SERIES_WANTED~user] Returns a list of series that user has requested, user can be self for the user that spoke, or none to get a list of series that noone has requested, if user asks have they requested or what they have requested etc
-[MOVIES_WANTED~user] Same as series wanted but for movies
-tmdbId and tvdbId can be found from the lookup commands, ask for it such as [SERIES_LOOKUP~What is game of thrones tvdbId?]
-If user is asking for example \"what mcu movies are on\" then you must do a [WEB~all mcu movies with release date] first to get list of mcu movies, then lookup each in a format like this [MOVIE_LOOKUP~Are these movies on Iron Man 1,Thor 1,Black Widow,...]
-If user queries \"how many gbs do my added movies take up\" look up the users wanted, then lookup on the server to get file size of each".to_string()
-}
-
-/// Get processing message
-pub fn processing_message_lookup(query: &String) -> String {
-    format!("🎬 Looking up media {query}")
-}
-
-pub fn processing_message_add(query: &String) -> String {
-    format!("🎬 Adding media {query}")
-}
-
-pub fn processing_message_setres(query: &String) -> String {
-    format!("🎬 Changing quality {query}")
-}
-
-pub fn processing_message_remove(query: &String) -> String {
-    format!("🎬 Removing media {query} from your requests")
-}
-
-pub fn processing_message_wanted(query: &String) -> String {
-    format!("🎬 Checking wanted media for {query}")
-}
-
 /// Perform a lookup of movies with ai processing to answer a prompt
-pub async fn lookup(media_type: Format, query: String) -> PluginReturn {
+pub async fn lookup(media_type: Format, query: String) -> Result<String, Box<dyn Error>> {
     let prompt = match media_type {
         Format::Movie => "The above text is a query to lookup movies, from the text above gather a list of movie titles mentioned, mention each movies title in its core form such as ('Avatar: The Way of Water' to 'Avatar', 'The Lord of the Rings: Return of the King Ultimate Cut' to just 'Lord of the Rings', 'Thor 2' to 'Thor'), return a list with ; divider on a single line".to_string(),
         Format::Series => "The above text is a query to lookup series, from the text above gather a list of series titles mentioned, mention each series title in its core form such as ('Stargate: SG1' to 'Stargate', 'The Witcher' to just 'Witcher'), return a list with ; divider on a single line".to_string(),
@@ -102,24 +62,50 @@ pub async fn lookup(media_type: Format, query: String) -> PluginReturn {
     .await
     .unwrap_or_default();
 
-    PluginReturn {
-        result: response,
-        to_user: format!("🎬 {media_type} lookup successful for {query}"),
-    }
+    Ok(response)
 }
 
 /// Add media to the server
-pub async fn add(media_type: Format, query: String, user_name: &str) -> PluginReturn {
-    let (mut media, id, quality_profile_id, quality) =
-        match get_media_info(media_type.clone(), query.clone(), true, true).await {
-            Ok(media_info) => media_info,
-            Err(err) => {
-                return PluginReturn {
-                    result: String::new(),
-                    to_user: err,
-                }
-            }
-        };
+pub async fn add(
+    media_type: Format,
+    db_id: String,
+    user_name: &str,
+    quality: String,
+) -> Result<String, Box<dyn Error>> {
+    // Determine the lookup path and service based on the media type
+    let (lookup_path, service) = match media_type {
+        Format::Movie => (
+            format!("/api/v3/movie/lookup/tmdb?tmdbId={db_id}"),
+            apis::ArrService::Radarr,
+        ),
+        Format::Series => (
+            format!("/api/v3/series/lookup?term=tvdbId {db_id}"),
+            apis::ArrService::Sonarr,
+        ),
+    };
+
+    // Perform the API request
+    let mut media =
+        apis::arr_request(apis::HttpMethod::Get, service.clone(), lookup_path, None).await;
+    // If the media type is a series, get the first result
+    if matches!(media_type, Format::Series) {
+        media = media[0].clone();
+    };
+
+    // Map quality strings to quality profile ids
+    let quality_profiles: HashMap<&str, u8> = [
+        ("SD", 2),
+        ("720p", 3),
+        ("1080p", 4),
+        ("2160p", 5),
+        ("720p/1080p", 6),
+        ("Any", 7),
+    ]
+    .iter()
+    .copied()
+    .collect();
+    // Default to 4 (1080p) if the quality string is not found
+    let quality_profile_id: u8 = *quality_profiles.get(quality.as_str()).unwrap_or(&4);
 
     let tag_id = get_user_tag_id(media_type.clone(), user_name).await;
 
@@ -128,12 +114,10 @@ pub async fn add(media_type: Format, query: String, user_name: &str) -> PluginRe
         if id.as_u64().unwrap() != 0 {
             // If already has the tag that user wants it, return message
             if media["tags"].as_array().unwrap().contains(&tag_id.into()) {
-                return PluginReturn {
-                    result: format!("{media_type} with id {id} is already on the server"),
-                    to_user: format!(
-                        "❌ Can't add {media_type} with id {id} is already on the server"
-                    ),
-                };
+                return Err(format!(
+                    "Couldn't add {media_type} with id {id}, it is already on the server and user has requested it"
+                )
+                .into());
             }
             // Else add the tag and let the user know it was added
             let mut new_media = media.clone();
@@ -142,12 +126,9 @@ pub async fn add(media_type: Format, query: String, user_name: &str) -> PluginRe
                 .unwrap()
                 .push(tag_id.into());
             push(media_type.clone(), new_media).await;
-            return PluginReturn {
-                result: format!("{media_type} with id {id} is already on the server, noted that user wants it"),
-                to_user: format!(
-                    "❌ Can't add {media_type} with id {id} is already on the server, noted that user wants it"
-                ),
-            };
+            return Err(format!(
+                "Couldn't add {media_type} with id {id}, it is already on the server, noted that the user wants it"
+            ).into());
         }
     };
 
@@ -192,52 +173,67 @@ pub async fn add(media_type: Format, query: String, user_name: &str) -> PluginRe
         }
     };
 
-    PluginReturn {
-        result: String::new(),
-        to_user: format!("🎬 Added {media_type} with id {id} in {quality}"),
-    }
+    Ok(format!("Added {media_type} with tmdbId/tvdbId {db_id} in {quality}"))
 }
 
-/// Set the resolution of media
-pub async fn setres(media_type: Format, query: String) -> PluginReturn {
-    let (mut media, id, quality_profile_id, quality) =
-        match get_media_info(media_type.clone(), query.clone(), true, false).await {
-            Ok(media_info) => media_info,
-            Err(err) => {
-                return PluginReturn {
-                    result: String::new(),
-                    to_user: err,
-                }
-            }
-        };
+/// Updates the resolution of a media item.
+pub async fn setres(
+    media_type: Format,
+    id: String,
+    quality: String,
+) -> Result<String, Box<dyn Error>> {
+    // Determine the lookup path and service based on the media type
+    let (lookup_path, service) = match media_type {
+        Format::Movie => (format!("/api/v3/movie/{id}"), apis::ArrService::Radarr),
+        Format::Series => (format!("/api/v3/series/{id}"), apis::ArrService::Sonarr),
+    };
 
-    // Check if media is on the server
+    // Perform the API request
+    let mut media =
+        apis::arr_request(apis::HttpMethod::Get, service.clone(), lookup_path, None).await;
+    // If the media type is a series, get the first result
+    if matches!(media_type, Format::Series) {
+        media = media[0].clone();
+    };
+
+    // Map quality strings to quality profile ids
+    let quality_profiles: HashMap<&str, u8> = [
+        ("SD", 2),
+        ("720p", 3),
+        ("1080p", 4),
+        ("2160p", 5),
+        ("720p/1080p", 6),
+        ("Any", 7),
+    ]
+    .iter()
+    .copied()
+    .collect();
+    // Default to 4 (1080p) if the quality string is not found
+    let quality_profile_id: u8 = *quality_profiles.get(quality.as_str()).unwrap_or(&4);
+
+    // Check if the media item exists on the server
     if let Value::Number(id) = &media["id"] {
         if id.as_u64().unwrap() == 0 {
-            return PluginReturn {
-                result: format!("{media_type} with id {id} isnt on the server"),
-                to_user: format!(
-                    "❌ Couldn't change resolution, {media_type} with id {id} isnt on the server"
-                ),
-            };
+            return Err(format!(
+                "Couldn't change resolution, {media_type} with id {id} isnt on the server"
+            )
+            .into());
         }
     } else {
-        return PluginReturn {
-            result: format!("{media_type} with id {id} isnt on the server"),
-            to_user: format!(
-                "❌ Couldn't change resolution, {media_type} with id {id} isnt on the server"
-            ),
-        };
+        return Err(format!(
+            "Couldn't change resolution, {media_type} with id {id} isnt on the server"
+        )
+        .into());
     }
 
-    // Update media json with quality profile id
+    // Update the media item's quality profile id
     media["qualityProfileId"] = quality_profile_id.into();
     push(media_type.clone(), media.clone()).await;
 
-    PluginReturn {
-        result: String::new(),
-        to_user: format!("🎬 Updated {media_type} with id {id} to {quality}"),
-    }
+    // Return a success message
+    Ok(format!(
+        "Changed resolution of {media_type} with id {id} to {quality}"
+    ))
 }
 
 /// Push data for media
@@ -270,17 +266,24 @@ pub async fn push(media_type: Format, media_json: Value) {
 }
 
 /// Remove wanted tag from media for user
-pub async fn remove(media_type: Format, query: String, user_name: &str) -> PluginReturn {
-    let (media, id, _quality_profile_id, _quality) =
-        match get_media_info(media_type.clone(), query.clone(), false, true).await {
-            Ok(media_info) => media_info,
-            Err(err) => {
-                return PluginReturn {
-                    result: String::new(),
-                    to_user: err,
-                }
-            }
-        };
+pub async fn remove(
+    media_type: Format,
+    id: String,
+    user_name: &str,
+) -> Result<String, Box<dyn Error>> {
+    // Determine the lookup path and service based on the media type
+    let (lookup_path, service) = match media_type {
+        Format::Movie => (format!("/api/v3/movie/{id}"), apis::ArrService::Radarr),
+        Format::Series => (format!("/api/v3/series/{id}"), apis::ArrService::Sonarr),
+    };
+
+    // Perform the API request
+    let mut media =
+        apis::arr_request(apis::HttpMethod::Get, service.clone(), lookup_path, None).await;
+    // If the media type is a series, get the first result
+    if matches!(media_type, Format::Series) {
+        media = media[0].clone();
+    };
 
     let tag_id: Option<u64> = get_user_tag_id(media_type.clone(), user_name).await;
 
@@ -299,29 +302,30 @@ pub async fn remove(media_type: Format, query: String, user_name: &str) -> Plugi
                     .collect::<Vec<Value>>();
                 new_media["tags"] = new_tags.into();
                 push(media_type.clone(), new_media).await;
-                return PluginReturn {
-                    result: format!("{media_type} with id {id} has been unrequested for user"),
-                    to_user: format!("🎬 {media_type} with id {id} has been unrequested for user"),
-                };
+                return Ok(format!(
+                    "{media_type} with id {id} has been unrequested for user"
+                ));
             }
+            return Err(format!(
+                "Couldn't remove {media_type} with id {id}, user hasn't requested it"
+            )
+            .into());
         }
     };
-    PluginReturn {
-        result: format!("{media_type} with id {id} isnt on the server"),
-        to_user: format!("❌ Can't remove {media_type} with id {id}, it isnt on the server"),
-    }
+    Err(format!("Couldn't remove {media_type} with id {id}, it isn't on the server").into())
 }
 
 /// Check for media the user wants
-pub async fn wanted(media_type: Format, query: String, user_name: &str) -> PluginReturn {
+pub async fn wanted(
+    media_type: Format,
+    query: String,
+    user_name: &str,
+) -> Result<String, Box<dyn Error>> {
     if query.to_lowercase() == "none" {
         let none_media = get_media_with_no_user_tags(media_type.clone())
             .await
             .join(", ");
-        return PluginReturn {
-            result: format!("🎬 {media_type} with no users requests: {none_media}"),
-            to_user: format!("🎬 {media_type} with no users requests found"),
-        };
+        return Ok(format!("{media_type} with no users requests: {none_media}"));
     }
     let user: String = if query == "self" {
         user_name.to_string()
@@ -331,10 +335,7 @@ pub async fn wanted(media_type: Format, query: String, user_name: &str) -> Plugi
     let user_media = get_media_with_user_tag(media_type.clone(), &user)
         .await
         .join(", ");
-    PluginReturn {
-        result: format!("🎬 {media_type} requested by {user}: {user_media}"),
-        to_user: format!("🎬 {media_type} requested by {user} found"),
-    }
+    Ok(format!("{media_type} requested by {user}: {user_media}"))
 }
 
 /// Get user tag id
@@ -485,82 +486,6 @@ async fn get_media_with_user_tag(media_type: Format, user_name: &str) -> Vec<Str
         }
     }
     media_with_user_tag
-}
-
-/// Get media info from sonarr or radarr based on a search query
-async fn get_media_info(
-    media_type: Format,
-    query: String,
-    has_resolution: bool,
-    is_tmdb: bool, // Is tmdb/tvdb id or sonarr/radarr id
-) -> Result<(Value, u32, u8, String), String> {
-    // Convert query string to id: u32, quality: String, split on ; and convert types, return if error
-    // id is either tmdb_id or tvdb_id
-    let mut query_split = query.split(';');
-    let id: u32 = match query_split.next() {
-        Some(id) => match id.parse::<u32>() {
-            Ok(id) => id,
-            Err(_) => {
-                return Err(format!("❌ {media_type} search failed, id not a number"));
-            }
-        },
-        None => {
-            return Err(format!("❌ {media_type} search failed, id not found"));
-        }
-    };
-    // Get media info based on media type (Movie or Series)
-    let (lookup_path, service) = if is_tmdb {
-        match media_type {
-            Format::Movie => (
-                format!("/api/v3/movie/lookup/tmdb?tmdbId={id}"),
-                apis::ArrService::Radarr,
-            ),
-            Format::Series => (
-                format!("/api/v3/series/lookup?term=tvdbId {id}"),
-                apis::ArrService::Sonarr,
-            ),
-        }
-    } else {
-        match media_type {
-            Format::Movie => (format!("/api/v3/movie/{id}"), apis::ArrService::Radarr),
-            Format::Series => (format!("/api/v3/series/{id}"), apis::ArrService::Sonarr),
-        }
-    };
-
-    let mut media =
-        apis::arr_request(apis::HttpMethod::Get, service.clone(), lookup_path, None).await;
-    // If is series, get first result
-    if matches!(media_type, Format::Series) {
-        media = media[0].clone();
-    };
-
-    // If shouldnt search for resolution
-    if !has_resolution {
-        return Ok((media, id, 0u8, String::new()));
-    }
-    // Get quality
-    let quality: String = match query_split.next() {
-        Some(quality) => quality.to_string(),
-        None => {
-            return Err(format!("❌ {media_type} search failed, quality not found"));
-        }
-    };
-    // Convert quality string to quality profile id
-    let quality_profiles: HashMap<&str, u8> = [
-        ("SD", 2),
-        ("720p", 3),
-        ("1080p", 4),
-        ("2160p", 5),
-        ("720p/1080p", 6),
-        ("Any", 7),
-    ]
-    .iter()
-    .copied()
-    .collect();
-    // Default to 4 which is 1080p if none found
-    let quality_profile_id: u8 = *quality_profiles.get(quality.as_str()).unwrap_or(&4);
-
-    Ok((media, id, quality_profile_id, quality))
 }
 
 /// Convert number size to string with units

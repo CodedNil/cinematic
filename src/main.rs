@@ -1,7 +1,4 @@
-//! Creates the discord client and starts listening for events.
-
 use serenity::prelude::{Client as DiscordClient, GatewayIntents};
-
 mod apis;
 mod chatbot;
 mod discordbot;

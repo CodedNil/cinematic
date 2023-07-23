@@ -1,12 +1,10 @@
-//! Web search plugin
-
+use crate::apis;
 use regex::Regex;
 use reqwest;
 use scraper::{Html, Selector};
 use serde::Serialize;
 use serde_json;
 use std::error::Error;
-
 #[derive(Serialize, Debug)]
 struct SearchResultBrave {
     title: String,
@@ -19,14 +17,6 @@ struct SearchResultBrave {
 struct SearchBrave {
     results: Vec<SearchResultBrave>,
     summary: String,
-}
-
-use crate::{apis, plugins::PluginReturn};
-
-// Plugins data
-pub fn get_plugin_data() -> String {
-    "[WEB~query]: Searches websites for query, replies with the answered query, should only be one query per command
-Example: [WEB~who is the main actor in iron man]".to_string()
 }
 
 async fn brave(query: String) -> Result<SearchBrave, Box<dyn Error>> {
@@ -129,20 +119,12 @@ async fn brave(query: String) -> Result<SearchBrave, Box<dyn Error>> {
     })
 }
 
-/// Get processing message
-pub fn processing_message(query: &String) -> String {
-    format!("🔍 Web search running for query {query}")
-}
-
 /// Perform a search with ai processing to answer a prompt
-pub async fn ai_search(query: String) -> PluginReturn {
+pub async fn ai_search(query: String) -> Result<String, Box<dyn Error>> {
     // Get the search results
     let mut search_results: SearchBrave = brave(query.clone()).await.unwrap();
     if search_results.results.is_empty() {
-        return PluginReturn {
-            result: "No results found".to_string(),
-            to_user: format!("❌ No results found for web search {query}"),
-        };
+        return Err("No results found".into());
     }
 
     // Download a larger snippet for the first wikipedia result
@@ -197,17 +179,10 @@ pub async fn ai_search(query: String) -> PluginReturn {
     }
 
     // Search with gpt through the blob to answer the query
-    let response = apis::gpt_info_query("gpt-3.5-turbo".to_string(), blob, format!("Your answers should be on one line and compact with lists having comma separations, recently published articles should get priority\nBased on the given information and only this information, {query}")).await;
+    let response = apis::gpt_info_query("gpt-3.5-turbo".to_string(), blob, format!("Your answers should be on one line and compact with lists having comma separations, recently published articles should get priority, answer verbosely with the question included in the answer\nBased on the given information and only this information, {query}")).await;
     // Return from errors
     if response.is_err() {
-        return PluginReturn {
-            result: String::from("Couldn't find an answer"),
-            to_user: format!("❌ Web search, couldn't find an answer for query {query}"),
-        };
+        return Err("Couldn't find an answer".into());
     }
-
-    PluginReturn {
-        result: response.unwrap(),
-        to_user: format!("🔍 Web search ran for query {query}"),
-    }
+    Ok(response.unwrap())
 }

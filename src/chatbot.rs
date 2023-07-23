@@ -1,204 +1,216 @@
-//! Manages the main chat loop
-
-use serenity::{model::channel::Message as DiscordMessage, prelude::Context as DiscordContext};
-
+use crate::{apis, plugins};
 use async_openai::types::{
-    ChatCompletionRequestMessage, ChatCompletionRequestMessageArgs,
+    ChatCompletionFunctionsArgs, ChatCompletionRequestMessage, ChatCompletionRequestMessageArgs,
     CreateChatCompletionRequestArgs, Role,
 };
-
 use chrono::Local;
-use futures::StreamExt;
-use regex::Regex;
-use std::sync::{Arc, Mutex};
+use serde_json::json;
+use serenity::{model::channel::Message as DiscordMessage, prelude::Context as DiscordContext};
+use std::error::Error;
 
-use crate::{apis, plugins};
-
-/// Helper function to handle command execution
-async fn execute_command(
-    command: String,
-    user_id: String,
-    user_name: String,
-    command_replies_lock: Arc<Mutex<Vec<String>>>,
-    extra_message_history_lock: Arc<Mutex<String>>,
-) {
-    let command_replies_lock_c = Arc::clone(&command_replies_lock);
-    let extra_message_history_lock_c = Arc::clone(&extra_message_history_lock);
-
-    tokio::spawn(async move {
-        // Add the processing message in the discord message
-        let processing_msg = plugins::get_processing_message(&command);
-        extra_message_history_lock
-            .lock()
-            .unwrap()
-            .push_str(format!("{processing_msg}\n").as_str());
-
-        let reply = plugins::run_command(&command, &user_id, &user_name).await;
-        let command_reply = format!("{command}~{result}", result = reply.result);
-        // Push the command plus reply into the mutex
-        let mut command_replies: std::sync::MutexGuard<Vec<String>> =
-            command_replies_lock_c.lock().unwrap();
-        command_replies.push(command_reply);
-
-        // Get a clone of the history String within the Mutex
-        let mut history = {
-            let history_lock = extra_message_history_lock_c.lock().unwrap();
-            history_lock.clone()
-        };
-
-        // Remove processing message, {processing_msg}\n with replace
-        history = history.replace(format!("{processing_msg}\n").as_str(), "");
-
-        // Add the reply to user in the discord message
-        history.push_str(format!("{}\n", reply.to_user).as_str());
-
-        // Update the Mutex with the new history:
-        {
-            let mut history_lock = extra_message_history_lock_c.lock().unwrap();
-            *history_lock = history.clone();
-        }
-    });
+/// Get available functions data
+#[allow(clippy::too_many_lines)]
+fn get_functions() -> Vec<async_openai::types::ChatCompletionFunctions> {
+    vec![
+        ChatCompletionFunctionsArgs::default()
+            .name("web_search")
+            .description("Search web for query")
+            .parameters(json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "A query for information to be answered",
+                    },
+                },
+                "required": ["query"],
+            }))
+            .build().unwrap(),
+        ChatCompletionFunctionsArgs::default()
+            .name("media_lookup")
+            .description("Search the media server for query information about a piece of media")
+            .parameters(json!({
+                "type": "object",
+                "properties": {
+                    "format": {
+                        "type": "string",
+                        "description": "The format of the media to be searched for",
+                        "enum": ["movie", "series"],
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "A query for information to be answered, query should be phrased as a question, for example \"Available on the server?\" \"Is Watchmen available on the server in the Ultimate Cut?\" \"What is Cats movie tmdbId?\" \"Who added Game of Thrones to the server?\", if multiple results are returned, ask user for clarification",
+                    }
+                },
+                "required": ["format", "query"],
+            }))
+            .build().unwrap(),
+            ChatCompletionFunctionsArgs::default()
+                .name("media_add")
+                .description("Adds media to the server, perform a lookup first to get the tmdbId or tvdbId")
+                .parameters(json!({
+                    "type": "object",
+                    "properties": {
+                        "format": {
+                            "type": "string",
+                            "description": "The format of the media to be searched for",
+                            "enum": ["movie", "series"],
+                        },
+                        "db_id": {
+                            "type": "string",
+                            "description": "The tmdb or tvdb id of the media item",
+                        },
+                        "quality": {
+                            "type": "string",
+                            "description": "The quality to set the media to, default to 1080p if not specified",
+                            "enum": ["SD", "720p", "1080p", "2160p", "720p/1080p", "Any"],
+                        },
+                    },
+                    "required": ["format", "id", "quality"],
+                }))
+                .build().unwrap(),
+        ChatCompletionFunctionsArgs::default()
+            .name("media_setres")
+            .description("Change the targeted resolution of a piece of media on the server, perform a lookup first to get the id")
+            .parameters(json!({
+                "type": "object",
+                "properties": {
+                    "format": {
+                        "type": "string",
+                        "description": "The format of the media to be searched for",
+                        "enum": ["movie", "series"],
+                    },
+                    "id": {
+                        "type": "string",
+                        "description": "The id of the media item",
+                    },
+                    "quality": {
+                        "type": "string",
+                        "description": "The quality to set the media to",
+                        "enum": ["SD", "720p", "1080p", "2160p", "720p/1080p", "Any"],
+                    },
+                },
+                "required": ["format", "id", "quality"],
+            }))
+            .build().unwrap(),
+        ChatCompletionFunctionsArgs::default()
+            .name("media_remove")
+            .description("Removes media from users requests, media items remain on the server if another user has requested also, perform a lookup first to get the id")
+            .parameters(json!({
+                "type": "object",
+                "properties": {
+                    "format": {
+                        "type": "string",
+                        "description": "The format of the media to be searched for",
+                        "enum": ["movie", "series"],
+                    },
+                    "id": {
+                        "type": "string",
+                        "description": "The id of the media item",
+                    },
+                },
+                "required": ["format", "id"],
+            }))
+            .build().unwrap(),
+            ChatCompletionFunctionsArgs::default()
+                .name("media_wanted")
+                .description("Returns a list of series that user has requested, user can be self for the user that spoke, or none to get a list of series that noone has requested, if user asks have they requested x or what they have requested etc")
+                .parameters(json!({
+                    "type": "object",
+                    "properties": {
+                        "format": {
+                            "type": "string",
+                            "description": "The format of the media to be searched for",
+                            "enum": ["movie", "series"],
+                        },
+                        "user": {
+                            "type": "string",
+                            "description": "The id of the media item",
+                            "enum": ["self", "none"],
+                        },
+                    },
+                    "required": ["format", "user"],
+                }))
+                .build().unwrap(),
+    ]
 }
 
-/// Run a ai chat completition to process commands
-pub async fn chat_completition_step(
-    ctx: DiscordContext,                            // The discord context
-    mut bot_message: DiscordMessage,                // The reply to the user
-    message_history_text: String,                   // The message history text
-    chat_query: Vec<ChatCompletionRequestMessage>,  // The chat query to send to gpt
-    extra_message_history_lock: Arc<Mutex<String>>, // The extra message history mutex
-    user_id: String,                                // The user id
-    user_name: String,                              // The user name
-) -> (Vec<String>, String) {
-    // Create the gpt request
-    let request = CreateChatCompletionRequestArgs::default()
-        .model("gpt-4")
-        .max_tokens(1024u16)
-        .messages(chat_query)
-        .build()
-        .unwrap();
-
-    // Stream the data
-    let mut stream = apis::get_openai()
-        .chat()
-        .create_stream(request)
-        .await
-        .unwrap();
-    let mut full_text = String::new();
-    let mut user_text = String::new();
-    let mut last_user_text = String::new();
-    let mut last_edit = Local::now();
-    // Collect commands, and replies in a mutex
-    let mut commands: Vec<String> = Vec::new();
-    let command_replies_lock: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-    // Stream the reply
-    while let Some(result) = stream.next().await {
-        // Get the result of this chunk
-        match result {
-            Ok(response) => {
-                // Get the first choice of the response
-                let chat_choice = response.choices.first().unwrap();
-                // If the content is not valid, continue
-                if chat_choice.delta.content.is_none() {
-                    continue;
-                }
-                let content = chat_choice.delta.content.as_ref().unwrap();
-                // Add chunk to full text
-                full_text.push_str(content);
-
-                // Get commands and user text out of the full text, commands are within []
-                let re_command = Regex::new(r"\[(.*?)\]").unwrap();
-                for cap in re_command.captures_iter(&full_text) {
-                    // If command is not in commands, add it
-                    if !commands.contains(&cap[1].to_string()) {
-                        commands.push(cap[1].to_string().clone());
-                        // Run in a thread
-                        execute_command(
-                            cap[1].to_string(),
-                            user_id.clone(),
-                            user_name.clone(),
-                            Arc::clone(&command_replies_lock),
-                            Arc::clone(&extra_message_history_lock),
-                        )
-                        .await;
-                    }
-                }
-                // User text is outside [], opened [ that arent closed count everything past them as not user text
-                let re_user = Regex::new(r"(?m)(?:\[[^\]\[]*?\]|^)([^\[\]]+)").unwrap();
-                user_text = String::new();
-                for cap in re_user.captures_iter(&full_text) {
-                    user_text.push_str(&cap[1]);
-                }
-
-                // Edit the discord message with the new content, edit it threaded so it doesnt interrupt the stream, max edits per second
-                if last_user_text != user_text
-                    && last_edit.timestamp_millis() + 1000 < Local::now().timestamp_millis()
-                {
-                    last_user_text = user_text.clone();
-                    let ctx_c = ctx.clone();
-                    let mut bot_message_c = bot_message.clone();
-                    let message_history_text_c = message_history_text.clone();
-                    let extra_history_text_c = extra_message_history_lock.lock().unwrap().clone();
-                    let user_text_c = user_text.clone();
-                    tokio::spawn(async move {
-                        bot_message_c
-                            .edit(&ctx_c.http, |msg| {
-                                msg.content(format!("{message_history_text_c}{extra_history_text_c}⌛ {user_text_c}"))
-                            })
-                            .await
-                            .unwrap();
-                    });
-                    last_edit = Local::now();
-                }
-            }
-            Err(err) => {
-                println!("error: {err}");
-            }
+/// Run function
+async fn run_function(
+    name: String,
+    args: serde_json::Value,
+    user_name: &str,
+) -> Result<String, Box<dyn Error>> {
+    match name.as_str() {
+        "web_search" => {
+            plugins::websearch::ai_search(args["query"].as_str().unwrap().to_string()).await
         }
-    }
-    // Edit the discord message with the new content
-    let extra_history_text_c = extra_message_history_lock.lock().unwrap().clone();
-    bot_message
-        .edit(&ctx.http, |msg| {
-            msg.content(format!(
-                "{message_history_text}{extra_history_text_c}⌛ {user_text}"
-            ))
-        })
-        .await
-        .unwrap();
-
-    // Wait until command replies are same length as commands, or timeout
-    let start_time = Local::now();
-    while commands.len() != command_replies_lock.lock().unwrap().len() {
-        if Local::now().timestamp_millis() > start_time.timestamp_millis() + 30000 {
-            break;
+        "media_lookup" => {
+            plugins::media::lookup(
+                match args["format"].as_str().unwrap() {
+                    "series" => plugins::media::Format::Series,
+                    _ => plugins::media::Format::Movie,
+                },
+                args["query"].as_str().unwrap().to_string(),
+            )
+            .await
         }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        "media_add" => {
+            plugins::media::add(
+                match args["format"].as_str().unwrap() {
+                    "series" => plugins::media::Format::Series,
+                    _ => plugins::media::Format::Movie,
+                },
+                args["db_id"].as_str().unwrap().to_string(),
+                user_name,
+                args["quality"].as_str().unwrap().to_string(),
+            )
+            .await
+        }
+        "media_setres" => {
+            plugins::media::setres(
+                match args["format"].as_str().unwrap() {
+                    "series" => plugins::media::Format::Series,
+                    _ => plugins::media::Format::Movie,
+                },
+                args["id"].as_str().unwrap().to_string(),
+                args["quality"].as_str().unwrap().to_string(),
+            )
+            .await
+        }
+        "media_remove" => {
+            plugins::media::remove(
+                match args["format"].as_str().unwrap() {
+                    "series" => plugins::media::Format::Series,
+                    _ => plugins::media::Format::Movie,
+                },
+                args["id"].as_str().unwrap().to_string(),
+                user_name,
+            )
+            .await
+        }
+        "media_wanted" => {
+            plugins::media::wanted(
+                match args["format"].as_str().unwrap() {
+                    "series" => plugins::media::Format::Series,
+                    _ => plugins::media::Format::Movie,
+                },
+                args["user"].as_str().unwrap().to_string(),
+                user_name,
+            )
+            .await
+        }
+        _ => Err("Function not found".into()),
     }
-    // Get the command replies
-    let command_replies = command_replies_lock.lock().unwrap().clone();
-
-    // Edit the discord message with the new content
-    let extra_history_text_c = extra_message_history_lock.lock().unwrap().clone();
-    bot_message
-        .edit(&ctx.http, |msg| {
-            msg.content(format!(
-                "{message_history_text}{extra_history_text_c}⌛ {user_text}"
-            ))
-        })
-        .await
-        .unwrap();
-
-    (command_replies, user_text)
 }
 
 /// Run the chat completition
+#[allow(clippy::too_many_lines)]
 pub async fn run_chat_completition(
     ctx: DiscordContext,             // The discord context
     mut bot_message: DiscordMessage, // The reply to the user
     message_history_text: String,    // The message history text
     users_text: String,              // The users text
-    user_id: String,                 // The user id
     user_name: String,               // The user name
 ) {
     // Get current date and time in DD/MM/YYYY and HH:MM:SS format
@@ -213,14 +225,6 @@ pub async fn run_chat_completition(
             .build()
             .unwrap(),
     ];
-    // Add plugin data to the chat query as role system
-    chat_query.push(
-        ChatCompletionRequestMessageArgs::default()
-            .role(Role::System)
-            .content(plugins::get_data())
-            .build()
-            .unwrap(),
-    );
     // Add message history minus the most recent line
     let mut just_history = message_history_text[..message_history_text.len() - 1].to_string();
     // If it contains a \n then it has history
@@ -250,68 +254,86 @@ pub async fn run_chat_completition(
             .unwrap(),
     );
 
-    // Extra message history mutex
-    let extra_message_history_lock: Arc<Mutex<String>> = Arc::new(Mutex::new(String::new()));
+    // Rerun the chat completition until either no function calls left, or max iterations reached
+    let mut extra_history_text: String = String::new();
+    let mut final_response: String = String::new();
+    let mut counter = 0;
+    while counter < 10 {
+        let request = CreateChatCompletionRequestArgs::default()
+            .max_tokens(512u16)
+            .model("gpt-4-0613")
+            .messages(chat_query.clone())
+            .functions(get_functions())
+            .function_call("auto")
+            .build()
+            .unwrap();
 
-    // Process the chat with running commands until either no data lookups left, or max iterations reached
-    let mut iteration = 0;
-    let max_iterations = 5;
-    let mut latest_user_text = String::new();
-    while iteration < max_iterations {
-        let (command_results, cmd_user_text) = chat_completition_step(
-            ctx.clone(),
-            bot_message.clone(),
-            message_history_text.clone(),
-            chat_query.clone(),
-            extra_message_history_lock.clone(),
-            user_id.clone(),
-            user_name.clone(),
-        )
-        .await;
-        if !cmd_user_text.is_empty() {
-            latest_user_text = cmd_user_text.clone();
-        }
+        let response_message = apis::get_openai()
+            .chat()
+            .create(request)
+            .await
+            .unwrap()
+            .choices
+            .get(0)
+            .unwrap()
+            .message
+            .clone();
 
-        // Check if there are any command returns with outputs
-        let mut has_output = false;
-        for result in &command_results {
-            // If there is any text after the second ~ then there is output
-            if result.split('~').count() > 2 {
-                has_output = true;
-                break;
-            }
-        }
+        if let Some(function_call) = response_message.function_call {
+            let function_name = function_call.name;
+            let function_args: serde_json::Value = function_call.arguments.parse().unwrap();
 
-        // If there are no output results, break the loop
-        if !has_output {
+            // Edit the discord message with function call in progress
+            let ctx_c = ctx.clone();
+            let mut bot_message_c = bot_message.clone();
+            let new_message = format!(
+                "{message_history_text}{extra_history_text}⌛ Running function {function_name}"
+            );
+            tokio::spawn(async move {
+                bot_message_c
+                    .edit(&ctx_c.http, |msg| msg.content(new_message))
+                    .await
+                    .unwrap();
+            });
+
+            let function_response =
+                run_function(function_name.clone(), function_args, &user_name).await;
+            // Get function response as string if either ok or error
+            let function_response_message =
+                function_response.map_or_else(|error| error.to_string(), |response| response);
+
+            // Edit the discord message with function call results
+            extra_history_text.push_str(format!("🎬 Ran function {function_name}",).as_str());
+            let ctx_c = ctx.clone();
+            let mut bot_message_c = bot_message.clone();
+            let new_message = format!("{message_history_text}{extra_history_text}");
+            tokio::spawn(async move {
+                bot_message_c
+                    .edit(&ctx_c.http, |msg| msg.content(new_message))
+                    .await
+                    .unwrap();
+            });
+
+            chat_query.push(
+                ChatCompletionRequestMessageArgs::default()
+                    .role(Role::Function)
+                    .name(function_name)
+                    .content(function_response_message)
+                    .build()
+                    .unwrap(),
+            );
+            counter += 1;
+        } else {
+            final_response = response_message.content.unwrap();
             break;
         }
-
-        // Process the command results if there are outputs
-        // Get all commands in one string
-        let mut commands = String::new();
-        for result in &command_results.clone() {
-            commands.push_str(format!("[{result}]").as_str());
-        }
-        commands.push_str(cmd_user_text.as_str());
-        // Add system message with results
-        chat_query.push(
-            ChatCompletionRequestMessageArgs::default()
-                .role(Role::System)
-                .content(commands)
-                .build()
-                .unwrap(),
-        );
-
-        // Increment the iteration counter
-        iteration += 1;
     }
+
     // Edit the discord message finalised
-    let extra_history_text_c = extra_message_history_lock.lock().unwrap().clone();
     bot_message
         .edit(&ctx.http, |msg| {
             msg.content(format!(
-                "{message_history_text}{extra_history_text_c}✅ {latest_user_text}"
+                "{message_history_text}{extra_history_text}\n✅ {final_response}"
             ))
         })
         .await
@@ -321,8 +343,7 @@ pub async fn run_chat_completition(
 /// Process the chat message from the user
 pub async fn process_chat(
     user_name: String,            // The users name
-    user_id: String,              // The users id
-    user_text: String,            // Users text to bot
+    users_text: String,           // Users text to bot
     ctx: DiscordContext,          // The discord context
     bot_message: DiscordMessage,  // The message reply to the user
     message_history_text: String, // The message history text, each starts with emoji identifying role
@@ -335,15 +356,14 @@ pub async fn process_chat(
         }
     }
     // Add the users latest message
-    user_text_total.push_str(&user_text);
+    user_text_total.push_str(&users_text);
 
     // Run chat completion
     run_chat_completition(
         ctx,
         bot_message,
         message_history_text,
-        user_text,
-        user_id,
+        users_text,
         user_name,
     )
     .await;

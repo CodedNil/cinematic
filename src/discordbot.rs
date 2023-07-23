@@ -1,5 +1,3 @@
-//! Manages the discord bot and basic chat events
-
 use serenity::{
     async_trait,
     model::{channel::Message as DiscordMessage, gateway::Ready},
@@ -159,7 +157,6 @@ impl EventHandler for Handler {
         tokio::spawn(async move {
             chatbot::process_chat(
                 user_name_cleaned,
-                user_id,
                 user_text,
                 ctx_clone,
                 bot_message,
