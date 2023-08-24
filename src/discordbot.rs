@@ -7,8 +7,6 @@ use serenity::{
 use rand::seq::SliceRandom;
 use regex::Regex;
 
-pub struct Handler;
-
 use crate::apis;
 use crate::chatbot;
 
@@ -35,20 +33,21 @@ static REPLY_MESSAGES: &[&str] = &[
     "Curtain up! Your message takes center stage, and I'm ready to give it a standing ovation... 🎦",
 ];
 
+pub struct Handler;
+
 #[async_trait]
 impl EventHandler for Handler {
-    // When the bot is ready
     async fn ready(&self, _: DiscordContext, ready: Ready) {
         println!("{} is connected!", ready.user.name);
     }
 
-    // When message is received
     async fn message(&self, ctx: DiscordContext, msg: DiscordMessage) {
-        // Don't reply to bots or self
+        let is_debug = cfg!(debug_assertions);
+
         if msg.author.bot {
             return;
         }
-        // Get the bots user
+
         let bot_user = ctx
             .http
             .get_current_user()
@@ -57,7 +56,7 @@ impl EventHandler for Handler {
 
         // If in production, don't reply to messages that don't mention the bot
         // In debug, don't reply to messages that don't start with "!"
-        if cfg!(debug_assertions) {
+        if is_debug {
             if !msg.content.starts_with('!') {
                 return;
             }
@@ -72,7 +71,7 @@ impl EventHandler for Handler {
                     }
                 }
                 Err(error) => {
-                    println!("Error checking mentions: {error:?}");
+                    eprintln!("Error checking mentions: {error:?}");
                     return;
                 }
             }
@@ -82,7 +81,7 @@ impl EventHandler for Handler {
         let regex = Regex::new(r"(?m)<[@#]&?\d+>").unwrap();
         let mut user_text = msg.content.replace('\n', " ").to_string();
         user_text = regex.replace_all(&user_text, "").trim().to_string();
-        if cfg!(debug_assertions) {
+        if is_debug {
             // Remove the first char "!" in debug
             user_text = user_text[1..].trim().to_string();
         }
