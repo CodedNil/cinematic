@@ -6,7 +6,9 @@ mod plugins;
 
 #[tokio::main]
 async fn main() {
-    let discord_token: String = apis::get_discord_token();
+    dotenv::dotenv().ok();
+
+    let discord_token: String = apis::get_env_variable("DISCORD_TOKEN");
     // Set gateway intents, which decides what events the bot will be notified about
     let intents: GatewayIntents = GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::DIRECT_MESSAGES

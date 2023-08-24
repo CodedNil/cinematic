@@ -1,4 +1,4 @@
-use crate::{apis, plugins};
+use crate::plugins;
 use anyhow::anyhow;
 use async_openai::types::{
     ChatCompletionFunctionsArgs, ChatCompletionRequestMessage, ChatCompletionRequestMessageArgs,
@@ -278,7 +278,7 @@ pub async fn run_chat_completition(
             .build()
             .unwrap();
 
-        let response_message = apis::get_openai()
+        let response_message = async_openai::Client::new()
             .chat()
             .create(request)
             .await

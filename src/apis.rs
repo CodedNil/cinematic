@@ -1,10 +1,9 @@
-use anyhow::anyhow;
-use async_openai::config::OpenAIConfig;
 use async_openai::types::{
     ChatCompletionRequestMessageArgs, CreateChatCompletionRequestArgs, Role,
 };
 use async_openai::Client as OpenAiClient;
 use reqwest::Method;
+use std::env;
 use std::fs::File;
 use std::io::prelude::*;
 
@@ -30,40 +29,16 @@ pub enum HttpMethod {
     Delete,
 }
 
-fn get_credentials() -> toml::Value {
-    // Read credentials.toml file to get keys
-    let mut file = File::open("credentials.toml").expect("Failed to open credentials file");
-    let mut contents = String::new();
-    file.read_to_string(&mut contents)
-        .expect("Failed to read credentials file");
-    let cred: toml::Value = contents.parse().expect("Failed to parse credentials TOML");
-
-    cred
-}
-
-/// Get discord token
-pub fn get_discord_token() -> String {
-    let cred = get_credentials();
-
-    // Configure the client with your Discord bot token
-    let discord_token: String = cred["discord_token"]
-        .as_str()
-        .expect("Expected a discord_token in the credentials.toml file")
-        .to_owned();
-    discord_token
-}
-
-/// Get openai client
-pub fn get_openai() -> OpenAiClient<async_openai::config::OpenAIConfig> {
-    let cred = get_credentials();
-
-    // Configure the client with your openai api key
-    let openai_api_key = cred["openai_api_key"]
-        .as_str()
-        .expect("Expected a openai_api_key in the credentials.toml file")
-        .to_string();
-    let config = OpenAIConfig::new().with_api_key(openai_api_key);
-    OpenAiClient::with_config(config)
+pub fn get_env_variable(key: &str) -> String {
+    match env::var(key) {
+        Ok(value) => value,
+        Err(e) => match e {
+            env::VarError::NotPresent => panic!("Environment variable {key} not found."),
+            env::VarError::NotUnicode(oss) => {
+                panic!("Environment variable {key} contains invalid data: {oss:?}")
+            }
+        },
+    }
 }
 
 /// Get from the names file the users name if it exists, cleaned up string
@@ -139,7 +114,7 @@ pub async fn gpt_info_query(model: String, data: String, prompt: String) -> Resu
     // Retry the request if it fails
     let mut tries = 0;
     let response = loop {
-        let response = get_openai().chat().create(request.clone()).await;
+        let response = OpenAiClient::new().chat().create(request.clone()).await;
         if let Ok(response) = response {
             break Ok(response);
         }
@@ -171,22 +146,13 @@ pub async fn arr_request(
     url: String,
     data: Option<String>,
 ) -> anyhow::Result<serde_json::Value> {
-    let credentials = get_credentials();
-    let service_credentials = credentials[&service.to_string()]
-        .as_table()
-        .ok_or_else(|| anyhow!("Expected a section in credentials.toml"))?;
+    let temp_service = service.to_string().to_uppercase();
+    let service_name = temp_service.as_str();
 
-    let get_str_value = |key: &str| -> anyhow::Result<String> {
-        service_credentials[key]
-            .as_str()
-            .ok_or_else(|| anyhow!("Expected {} in credentials.toml", key))
-            .map(std::string::ToString::to_string)
-    };
-
-    let arr_api_key = get_str_value("api")?;
-    let arr_url = get_str_value("url")?;
-    let username = get_str_value("authuser")?;
-    let password = get_str_value("authpass")?;
+    let arr_api_key = get_env_variable(format!("{service_name}_API").as_str());
+    let arr_url = get_env_variable(format!("{service_name}_URL").as_str());
+    let username = get_env_variable(format!("{service_name}_AUTHUSER").as_str());
+    let password = get_env_variable(format!("{service_name}_AUTHPASS").as_str());
 
     let client = reqwest::Client::new();
     let mut request = client
