@@ -347,6 +347,82 @@ pub async fn wanted(media_type: Format, query: String, user_name: &str) -> anyho
     Ok(format!("{media_type} requested by {user}: {user_media}"))
 }
 
+/// Get status of media that is currently downloading or awaiting import
+pub async fn check_downloads() -> anyhow::Result<String> {
+    // Fetch the current downloads queue from Radarr
+    let radarr_downloads_value = apis::arr_request(
+        apis::HttpMethod::Get,
+        apis::ArrService::Radarr,
+        "/api/v3/queue".to_string(),
+        None,
+    )
+    .await?;
+
+    // Fetch the current downloads queue from Sonarr
+    let sonarr_downloads_value = apis::arr_request(
+        apis::HttpMethod::Get,
+        apis::ArrService::Sonarr,
+        "/api/v3/queue".to_string(),
+        None,
+    )
+    .await?;
+
+    let extract_downloads = |value: &serde_json::Value| -> anyhow::Result<Vec<String>> {
+        // Ensure that the returned JSON is an array
+        let downloads = value["records"]
+            .as_array()
+            .ok_or(anyhow!("Expected an array of downloads"))?;
+
+        // Extract relevant information about the downloads
+        let mut downloads_info = Vec::new();
+        let mut seen_titles = std::collections::HashSet::new();
+        for download in downloads {
+            let title = download["title"].as_str().unwrap_or("Unknown Title");
+            if seen_titles.contains(title) {
+                continue; // Skip this title since it's already processed
+            }
+            seen_titles.insert(title);
+
+            let status = download["status"].as_str().unwrap_or("Unknown Status");
+            let time_left = download["timeleft"].as_str().unwrap_or("Unknown Time Left");
+
+            let messages: Vec<String> = download["statusMessages"]
+                .as_array()
+                .unwrap_or(&Vec::new())
+                .iter()
+                .filter_map(|msg| msg["title"].as_str())
+                .map(String::from)
+                .collect();
+
+            let formatted_message = if messages.is_empty() {
+                String::new()
+            } else {
+                format!(", Messages: {}", messages.join(", "))
+            };
+
+            downloads_info.push(format!(
+                "{title} (Status: {status} Time Left: {time_left}{formatted_message})"
+            ));
+        }
+        Ok(downloads_info)
+    };
+
+    let radarr_downloads = extract_downloads(&radarr_downloads_value)?;
+    let sonarr_downloads = extract_downloads(&sonarr_downloads_value)?;
+
+    // Format the output based on the presence of downloads
+    let mut output_parts = Vec::new();
+    if !sonarr_downloads.is_empty() {
+        output_parts.push(format!("Series Downloads: {}", sonarr_downloads.join("; ")));
+    }
+    if !radarr_downloads.is_empty() {
+        output_parts.push(format!("Movies downloads: {}", radarr_downloads.join("; ")));
+    }
+
+    // Return a human-readable summary
+    Ok(output_parts.join(" | "))
+}
+
 /// Get user tag id
 async fn get_user_tag_id(media_type: Format, user_name: &str) -> Option<u64> {
     // Sync then get all current tags

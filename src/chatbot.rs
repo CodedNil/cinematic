@@ -45,30 +45,30 @@ fn get_functions() -> Vec<async_openai::types::ChatCompletionFunctions> {
                 "required": ["format", "query"],
             }))
             .build().unwrap(),
-            ChatCompletionFunctionsArgs::default()
-                .name("media_add")
-                .description("Adds media to the server, perform a lookup first to get the tmdbId or tvdbId")
-                .parameters(json!({
-                    "type": "object",
-                    "properties": {
-                        "format": {
-                            "type": "string",
-                            "description": "The format of the media to be searched for",
-                            "enum": ["movie", "series"],
-                        },
-                        "db_id": {
-                            "type": "string",
-                            "description": "The tmdb or tvdb id of the media item",
-                        },
-                        "quality": {
-                            "type": "string",
-                            "description": "The quality to set the media to, default to 1080p if not specified",
-                            "enum": ["SD", "720p", "1080p", "2160p", "720p/1080p", "Any"],
-                        },
+        ChatCompletionFunctionsArgs::default()
+            .name("media_add")
+            .description("Adds media to the server, perform a lookup first to get the tmdbId or tvdbId")
+            .parameters(json!({
+                "type": "object",
+                "properties": {
+                    "format": {
+                        "type": "string",
+                        "description": "The format of the media to be searched for",
+                        "enum": ["movie", "series"],
                     },
-                    "required": ["format", "id", "quality"],
-                }))
-                .build().unwrap(),
+                    "db_id": {
+                        "type": "string",
+                        "description": "The tmdb or tvdb id of the media item",
+                    },
+                    "quality": {
+                        "type": "string",
+                        "description": "The quality to set the media to, default to 1080p if not specified",
+                        "enum": ["SD", "720p", "1080p", "2160p", "720p/1080p", "Any"],
+                    },
+                },
+                "required": ["format", "id", "quality"],
+            }))
+            .build().unwrap(),
         ChatCompletionFunctionsArgs::default()
             .name("media_setres")
             .description("Change the targeted resolution of a piece of media on the server, perform a lookup first to get the id")
@@ -112,26 +112,35 @@ fn get_functions() -> Vec<async_openai::types::ChatCompletionFunctions> {
                 "required": ["format", "id"],
             }))
             .build().unwrap(),
-            ChatCompletionFunctionsArgs::default()
-                .name("media_wanted")
-                .description("Returns a list of series that user has requested, user can be self for the user that spoke, or none to get a list of series that noone has requested, if user asks have they requested x or what they have requested etc")
-                .parameters(json!({
-                    "type": "object",
-                    "properties": {
-                        "format": {
-                            "type": "string",
-                            "description": "The format of the media to be searched for",
-                            "enum": ["movie", "series"],
-                        },
-                        "user": {
-                            "type": "string",
-                            "description": "The id of the media item",
-                            "enum": ["self", "none"],
-                        },
+        ChatCompletionFunctionsArgs::default()
+            .name("media_wanted")
+            .description("Returns a list of series that user has requested, user can be self for the user that spoke, or none to get a list of series that noone has requested, if user asks have they requested x or what they have requested etc")
+            .parameters(json!({
+                "type": "object",
+                "properties": {
+                    "format": {
+                        "type": "string",
+                        "description": "The format of the media to be searched for",
+                        "enum": ["movie", "series"],
                     },
-                    "required": ["format", "user"],
-                }))
-                .build().unwrap(),
+                    "user": {
+                        "type": "string",
+                        "description": "The id of the media item",
+                        "enum": ["self", "none"],
+                    },
+                },
+                "required": ["format", "user"],
+            }))
+            .build().unwrap(),
+        ChatCompletionFunctionsArgs::default()
+            .name("media_downloads")
+            .description("Returns a list of series or movies that are downloading and their status, if user asks how long until a series is on etc")
+            .parameters(json!({
+                "type": "object",
+                "properties": {},
+                "required": [],
+            }))
+            .build().unwrap(),
     ]
 }
 
@@ -200,6 +209,7 @@ async fn run_function(
             )
             .await
         }
+        "media_downloads" => plugins::media::check_downloads().await,
         _ => Err(anyhow!("Function not found")),
     }
 }
