@@ -39,7 +39,7 @@ fn get_functions() -> Vec<async_openai::types::ChatCompletionFunctions> {
                     },
                     "query": {
                         "type": "string",
-                        "description": "A query for information to be answered, query should be phrased as a question, for example \"Available on the server?\" \"Is Watchmen available on the server in the Ultimate Cut?\" \"What is Cats movie tmdbId?\" \"Who added Game of Thrones to the server?\", if multiple results are returned, ask user for clarification",
+                        "description": "A query for information to be answered, query should be phrased as a question, for example \"Available on the server?\" \"Is series Watchmen available on the server in the Ultimate Cut?\" \"What is Cats movie tmdbId?\" \"Who added series Game of Thrones to the server?\", if multiple results are returned, ask user for clarification",
                     }
                 },
                 "required": ["format", "query"],
@@ -287,7 +287,7 @@ pub async fn run_chat_completition(
             let ctx_c = ctx.clone();
             let mut bot_message_c = bot_message.clone();
             let new_message = format!(
-                "{message_history_text}{extra_history_text}⌛ Running function {function_name}"
+                "{message_history_text}{extra_history_text}⌛ Running function {function_name} with arguments {function_args}"
             );
             tokio::spawn(async move {
                 bot_message_c
@@ -303,7 +303,9 @@ pub async fn run_chat_completition(
                 function_response.map_or_else(|error| error.to_string(), |response| response);
 
             // Edit the discord message with function call results
-            extra_history_text.push_str(format!("🎬 Ran function {function_name}",).as_str());
+            extra_history_text.push_str(
+                format!("🎬 Ran function {function_name} {function_response_message}\n",).as_str(),
+            );
             let ctx_c = ctx.clone();
             let mut bot_message_c = bot_message.clone();
             let new_message = format!("{message_history_text}{extra_history_text}");
@@ -333,7 +335,7 @@ pub async fn run_chat_completition(
     bot_message
         .edit(&ctx.http, |msg| {
             msg.content(format!(
-                "{message_history_text}{extra_history_text}\n✅ {final_response}"
+                "{message_history_text}{extra_history_text}✅ {final_response}"
             ))
         })
         .await
