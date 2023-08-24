@@ -1,7 +1,7 @@
 use crate::apis;
+use anyhow::anyhow;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::error::Error;
 
 #[derive(Debug, Clone)]
 pub enum Format {
@@ -18,7 +18,14 @@ impl std::fmt::Display for Format {
 }
 
 /// Perform a lookup of movies with ai processing to answer a prompt
-pub async fn lookup(media_type: Format, query: String) -> Result<String, Box<dyn Error>> {
+pub async fn lookup(media_type: Format, query: String) -> anyhow::Result<String> {
+    // replace tmdbId with tvdbID if media_type is series in query
+    let query = if matches!(media_type, Format::Series) {
+        query.replace("tmdbId", "tvdbId")
+    } else {
+        query
+    };
+
     let prompt = match media_type {
         Format::Movie => "The above text is a query to lookup movies, from the text above gather a list of movie titles mentioned, mention each movies title in its core form such as ('Avatar: The Way of Water' to 'Avatar', 'The Lord of the Rings: Return of the King Ultimate Cut' to just 'Lord of the Rings', 'Thor 2' to 'Thor'), return a list with ; divider on a single line".to_string(),
         Format::Series => "The above text is a query to lookup series, from the text above gather a list of series titles mentioned, mention each series title in its core form such as ('Stargate: SG1' to 'Stargate', 'The Witcher' to just 'Witcher'), return a list with ; divider on a single line".to_string(),
@@ -44,10 +51,11 @@ pub async fn lookup(media_type: Format, query: String) -> Result<String, Box<dyn
         ));
     }
     // Wait for all searches to finish parallel
-    let arr_searches = futures::future::join_all(arr_searches).await;
+    let arr_searches: Vec<Result<Value, anyhow::Error>> =
+        futures::future::join_all(arr_searches).await;
     // Gather human readable data for each item
     let mut media_strings: Vec<String> = Vec::new();
-    for search in arr_searches {
+    for search in arr_searches.iter().flatten() {
         let search_results = search.clone();
         // Trim the searches so each only contains 5 results max and output plain english
         media_strings.push(media_to_plain_english(&media_type, search_results, 5).await);
@@ -71,7 +79,7 @@ pub async fn add(
     db_id: String,
     user_name: &str,
     quality: String,
-) -> Result<String, Box<dyn Error>> {
+) -> anyhow::Result<String> {
     // Determine the lookup path and service based on the media type
     let (lookup_path, service) = match media_type {
         Format::Movie => (
@@ -85,8 +93,9 @@ pub async fn add(
     };
 
     // Perform the API request
-    let mut media =
-        apis::arr_request(apis::HttpMethod::Get, service.clone(), lookup_path, None).await;
+    let mut media = apis::arr_request(apis::HttpMethod::Get, service.clone(), lookup_path, None)
+        .await
+        .map_err(|e| anyhow!("Couldn't add {}, {}", media_type, e))?;
     // If the media type is a series, get the first result
     if matches!(media_type, Format::Series) {
         media = media[0].clone();
@@ -114,10 +123,9 @@ pub async fn add(
         if id.as_u64().unwrap() != 0 {
             // If already has the tag that user wants it, return message
             if media["tags"].as_array().unwrap().contains(&tag_id.into()) {
-                return Err(format!(
+                return Err(anyhow!(
                     "Couldn't add {media_type} with id {id}, it is already on the server and user has requested it"
-                )
-                .into());
+                ));
             }
             // Else add the tag and let the user know it was added
             let mut new_media = media.clone();
@@ -126,9 +134,9 @@ pub async fn add(
                 .unwrap()
                 .push(tag_id.into());
             push(media_type.clone(), new_media).await;
-            return Err(format!(
+            return Err(anyhow!(
                 "Couldn't add {media_type} with id {id}, it is already on the server, noted that the user wants it"
-            ).into());
+            ));
         }
     };
 
@@ -152,7 +160,7 @@ pub async fn add(
     // Media to json
     let media = serde_json::to_string(&media).unwrap();
     // Add the media to sonarr or radarr
-    match media_type {
+    let response = match media_type {
         Format::Movie => {
             apis::arr_request(
                 apis::HttpMethod::Post,
@@ -172,16 +180,22 @@ pub async fn add(
             .await
         }
     };
+    // Return error if response is an error
+    if response.is_err() {
+        return Err(anyhow!(
+            "Couldn't add {media_type}, {error}",
+            media_type = media_type,
+            error = response.err().unwrap()
+        ));
+    }
 
-    Ok(format!("Added {media_type} with tmdbId/tvdbId {db_id} in {quality}"))
+    Ok(format!(
+        "Added {media_type} with tmdbId/tvdbId {db_id} in {quality}"
+    ))
 }
 
 /// Updates the resolution of a media item.
-pub async fn setres(
-    media_type: Format,
-    id: String,
-    quality: String,
-) -> Result<String, Box<dyn Error>> {
+pub async fn setres(media_type: Format, id: String, quality: String) -> anyhow::Result<String> {
     // Determine the lookup path and service based on the media type
     let (lookup_path, service) = match media_type {
         Format::Movie => (format!("/api/v3/movie/{id}"), apis::ArrService::Radarr),
@@ -189,8 +203,9 @@ pub async fn setres(
     };
 
     // Perform the API request
-    let mut media =
-        apis::arr_request(apis::HttpMethod::Get, service.clone(), lookup_path, None).await;
+    let mut media = apis::arr_request(apis::HttpMethod::Get, service.clone(), lookup_path, None)
+        .await
+        .map_err(|e| anyhow!("Couldn't change resolution of {}, {}", media_type, e))?;
     // If the media type is a series, get the first result
     if matches!(media_type, Format::Series) {
         media = media[0].clone();
@@ -214,16 +229,14 @@ pub async fn setres(
     // Check if the media item exists on the server
     if let Value::Number(id) = &media["id"] {
         if id.as_u64().unwrap() == 0 {
-            return Err(format!(
+            return Err(anyhow!(
                 "Couldn't change resolution, {media_type} with id {id} isnt on the server"
-            )
-            .into());
+            ));
         }
     } else {
-        return Err(format!(
+        return Err(anyhow!(
             "Couldn't change resolution, {media_type} with id {id} isnt on the server"
-        )
-        .into());
+        ));
     }
 
     // Update the media item's quality profile id
@@ -262,15 +275,12 @@ pub async fn push(media_type: Format, media_json: Value) {
             )
             .await
         }
-    };
+    }
+    .expect("Failed to push media");
 }
 
 /// Remove wanted tag from media for user
-pub async fn remove(
-    media_type: Format,
-    id: String,
-    user_name: &str,
-) -> Result<String, Box<dyn Error>> {
+pub async fn remove(media_type: Format, id: String, user_name: &str) -> anyhow::Result<String> {
     // Determine the lookup path and service based on the media type
     let (lookup_path, service) = match media_type {
         Format::Movie => (format!("/api/v3/movie/{id}"), apis::ArrService::Radarr),
@@ -278,8 +288,10 @@ pub async fn remove(
     };
 
     // Perform the API request
-    let mut media =
-        apis::arr_request(apis::HttpMethod::Get, service.clone(), lookup_path, None).await;
+    let mut media = apis::arr_request(apis::HttpMethod::Get, service.clone(), lookup_path, None)
+        .await
+        .map_err(|e| anyhow!("Couldn't remove {}, {}", media_type, e))?;
+
     // If the media type is a series, get the first result
     if matches!(media_type, Format::Series) {
         media = media[0].clone();
@@ -306,21 +318,18 @@ pub async fn remove(
                     "{media_type} with id {id} has been unrequested for user"
                 ));
             }
-            return Err(format!(
+            return Err(anyhow!(
                 "Couldn't remove {media_type} with id {id}, user hasn't requested it"
-            )
-            .into());
+            ));
         }
     };
-    Err(format!("Couldn't remove {media_type} with id {id}, it isn't on the server").into())
+    Err(anyhow!(
+        "Couldn't remove {media_type} with id {id}, it isn't on the server"
+    ))
 }
 
 /// Check for media the user wants
-pub async fn wanted(
-    media_type: Format,
-    query: String,
-    user_name: &str,
-) -> Result<String, Box<dyn Error>> {
+pub async fn wanted(media_type: Format, query: String, user_name: &str) -> anyhow::Result<String> {
     if query.to_lowercase() == "none" {
         let none_media = get_media_with_no_user_tags(media_type.clone())
             .await
@@ -353,6 +362,11 @@ async fn get_user_tag_id(media_type: Format, user_name: &str) -> Option<u64> {
         None,
     )
     .await;
+    // Return error if all_tags is an error
+    if all_tags.is_err() {
+        return None;
+    }
+    let all_tags = all_tags.unwrap();
     // Get id for users tag [{id: 1, label: "added-username"}]
     if let Value::Array(tags) = &all_tags {
         for tag in tags {
@@ -393,7 +407,8 @@ async fn sync_user_tags(media_type: Format) {
         "/api/v3/tag".to_string(),
         None,
     )
-    .await;
+    .await
+    .expect("Failed to get tags");
     // Get tags with prefix
     let mut current_tags = Vec::new();
     for tag in all_tags.as_array().unwrap() {
@@ -419,7 +434,8 @@ async fn sync_user_tags(media_type: Format) {
             "/api/v3/tag".to_string(),
             Some(body),
         )
-        .await;
+        .await
+        .expect("Failed to add tag");
     }
 
     // Remove extra tags
@@ -445,7 +461,8 @@ async fn sync_user_tags(media_type: Format) {
             format!("/api/v3/tag/{tag_id}"),
             None,
         )
-        .await;
+        .await
+        .expect("Failed to remove tag");
     }
 }
 
@@ -456,6 +473,11 @@ async fn get_media_with_no_user_tags(media_type: Format) -> Vec<String> {
         Format::Series => ("/api/v3/series".to_string(), apis::ArrService::Sonarr),
     };
     let all_media = apis::arr_request(apis::HttpMethod::Get, service, url, None).await;
+    // Return error if media is an error
+    if all_media.is_err() {
+        return Vec::new();
+    }
+    let all_media = all_media.unwrap();
     let mut media_with_no_user_tags = Vec::new();
     for media in all_media.as_array().unwrap() {
         let tags = media["tags"].as_array().unwrap();
@@ -476,6 +498,11 @@ async fn get_media_with_user_tag(media_type: Format, user_name: &str) -> Vec<Str
     let tag_id = get_user_tag_id(media_type.clone(), user_name).await;
     // Get all media and return ones the user requested
     let all_media = apis::arr_request(apis::HttpMethod::Get, service, url, None).await;
+    // Return error if media is an error
+    if all_media.is_err() {
+        return Vec::new();
+    }
+    let all_media = all_media.unwrap();
     let mut media_with_user_tag = Vec::new();
     for media in all_media.as_array().unwrap() {
         let tags = media["tags"].as_array().unwrap();
@@ -544,7 +571,7 @@ async fn media_to_plain_english(media_type: &Format, response: Value, num: usize
             // Get tags added-users
             if let Value::Array(tags) = &item["tags"] {
                 // Get all current tags
-                let all_tags: Value = apis::arr_request(
+                let all_tags = apis::arr_request(
                     apis::HttpMethod::Get,
                     match media_type {
                         Format::Movie => apis::ArrService::Radarr,
@@ -554,27 +581,29 @@ async fn media_to_plain_english(media_type: &Format, response: Value, num: usize
                     None,
                 )
                 .await;
-                // Get tags added-users
-                let mut tag_labels = String::new();
-                for tag in tags {
-                    if let Value::Number(tag_id) = tag {
-                        for all_tag in all_tags.as_array().unwrap() {
-                            if let (Some(id), Some(label)) =
-                                (all_tag.get("id"), all_tag.get("label"))
-                            {
-                                if id.as_u64() == tag_id.as_u64() {
-                                    if !tag_labels.is_empty() {
-                                        tag_labels.push_str(", ");
+                if let Ok(all_tags) = all_tags {
+                    // Get tags added-users
+                    let mut tag_labels = String::new();
+                    for tag in tags {
+                        if let Value::Number(tag_id) = tag {
+                            for all_tag in all_tags.as_array().unwrap() {
+                                if let (Some(id), Some(label)) =
+                                    (all_tag.get("id"), all_tag.get("label"))
+                                {
+                                    if id.as_u64() == tag_id.as_u64() {
+                                        if !tag_labels.is_empty() {
+                                            tag_labels.push_str(", ");
+                                        }
+                                        tag_labels.push_str(label.as_str().unwrap());
+                                        break;
                                     }
-                                    tag_labels.push_str(label.as_str().unwrap());
-                                    break;
                                 }
                             }
                         }
                     }
-                }
-                if !tag_labels.is_empty() {
-                    result.push(format!("added by {tag_labels}"));
+                    if !tag_labels.is_empty() {
+                        result.push(format!("added by {tag_labels}"));
+                    }
                 }
             }
             match media_type {

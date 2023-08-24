@@ -1,10 +1,10 @@
 use crate::apis;
+use anyhow::anyhow;
 use regex::Regex;
 use reqwest;
 use scraper::{Html, Selector};
 use serde::Serialize;
 use serde_json;
-use std::error::Error;
 #[derive(Serialize, Debug)]
 struct SearchResultBrave {
     title: String,
@@ -19,10 +19,10 @@ struct SearchBrave {
     summary: String,
 }
 
-async fn brave(query: String) -> Result<SearchBrave, Box<dyn Error>> {
+async fn brave(query: String) -> anyhow::Result<SearchBrave> {
     let response_search = reqwest::get(format!("https://search.brave.com/search?q={query}")).await;
     if response_search.is_err() {
-        return Err("Failed to fetch brave search".into());
+        return Err(anyhow!("Failed to fetch brave search"));
     }
     // Get the summarizer text if exists
     let response_summary = reqwest::get(format!(
@@ -120,11 +120,11 @@ async fn brave(query: String) -> Result<SearchBrave, Box<dyn Error>> {
 }
 
 /// Perform a search with ai processing to answer a prompt
-pub async fn ai_search(query: String) -> Result<String, Box<dyn Error>> {
+pub async fn ai_search(query: String) -> anyhow::Result<String> {
     // Get the search results
     let mut search_results: SearchBrave = brave(query.clone()).await.unwrap();
     if search_results.results.is_empty() {
-        return Err("No results found".into());
+        return Err(anyhow!("No results found"));
     }
 
     // Download a larger snippet for the first wikipedia result
@@ -182,7 +182,7 @@ pub async fn ai_search(query: String) -> Result<String, Box<dyn Error>> {
     let response = apis::gpt_info_query("gpt-3.5-turbo".to_string(), blob, format!("Your answers should be on one line and compact with lists having comma separations, recently published articles should get priority, answer verbosely with the question included in the answer\nBased on the given information and only this information, {query}")).await;
     // Return from errors
     if response.is_err() {
-        return Err("Couldn't find an answer".into());
+        return Err(anyhow!("Couldn't find an answer"));
     }
     Ok(response.unwrap())
 }

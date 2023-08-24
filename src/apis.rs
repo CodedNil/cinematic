@@ -1,12 +1,12 @@
-use reqwest::Method;
-use std::fs::File;
-use std::io::prelude::*;
-
+use anyhow::anyhow;
 use async_openai::config::OpenAIConfig;
 use async_openai::types::{
     ChatCompletionRequestMessageArgs, CreateChatCompletionRequestArgs, Role,
 };
 use async_openai::Client as OpenAiClient;
+use reqwest::Method;
+use std::fs::File;
+use std::io::prelude::*;
 
 #[derive(Clone)]
 pub enum ArrService {
@@ -170,30 +170,26 @@ pub async fn arr_request(
     service: ArrService,
     url: String,
     data: Option<String>,
-) -> serde_json::Value {
-    let cred = get_credentials();
-    let arr = cred[&service.to_string()]
+) -> anyhow::Result<serde_json::Value> {
+    let credentials = get_credentials();
+    let service_credentials = credentials[&service.to_string()]
         .as_table()
-        .expect("Expected a section in credentials.toml");
-    let arr_api_key = arr["api"]
-        .as_str()
-        .expect("Expected an api in credentials.toml")
-        .to_string();
-    let arr_url = arr["url"]
-        .as_str()
-        .expect("Expected a url in credentials.toml")
-        .to_string();
-    let username = arr["authuser"]
-        .as_str()
-        .expect("Expected an authuser in credentials.toml")
-        .to_string();
-    let password = arr["authpass"]
-        .as_str()
-        .expect("Expected an authpass in credentials.toml")
-        .to_string();
+        .ok_or_else(|| anyhow!("Expected a section in credentials.toml"))?;
+
+    let get_str_value = |key: &str| -> anyhow::Result<String> {
+        service_credentials[key]
+            .as_str()
+            .ok_or_else(|| anyhow!("Expected {} in credentials.toml", key))
+            .map(std::string::ToString::to_string)
+    };
+
+    let arr_api_key = get_str_value("api")?;
+    let arr_url = get_str_value("url")?;
+    let username = get_str_value("authuser")?;
+    let password = get_str_value("authpass")?;
 
     let client = reqwest::Client::new();
-    let request = client
+    let mut request = client
         .request(
             match method {
                 HttpMethod::Get => Method::GET,
@@ -206,21 +202,12 @@ pub async fn arr_request(
         .basic_auth(username, Some(password))
         .header("X-Api-Key", arr_api_key);
 
-    let request = if let Some(data) = data {
-        request
+    if let Some(body_data) = data {
+        request = request
             .header("Content-Type", "application/json")
-            .body(data)
-    } else {
-        request
-    };
+            .body(body_data);
+    }
 
-    let response = request
-        .send()
-        .await
-        .expect("Failed to send request")
-        .text()
-        .await
-        .expect("Failed to get response");
-
-    serde_json::from_str(&response).expect("Failed to parse json")
+    let response = request.send().await?.text().await?;
+    serde_json::from_str(&response).map_err(Into::into)
 }

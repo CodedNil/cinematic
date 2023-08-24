@@ -1,4 +1,5 @@
 use crate::{apis, plugins};
+use anyhow::anyhow;
 use async_openai::types::{
     ChatCompletionFunctionsArgs, ChatCompletionRequestMessage, ChatCompletionRequestMessageArgs,
     CreateChatCompletionRequestArgs, Role,
@@ -6,7 +7,6 @@ use async_openai::types::{
 use chrono::Local;
 use serde_json::json;
 use serenity::{model::channel::Message as DiscordMessage, prelude::Context as DiscordContext};
-use std::error::Error;
 
 /// Get available functions data
 #[allow(clippy::too_many_lines)]
@@ -39,7 +39,7 @@ fn get_functions() -> Vec<async_openai::types::ChatCompletionFunctions> {
                     },
                     "query": {
                         "type": "string",
-                        "description": "A query for information to be answered, query should be phrased as a question, for example \"Available on the server?\" \"Is series Watchmen available on the server in the Ultimate Cut?\" \"What is Cats movie tmdbId?\" \"Who added series Game of Thrones to the server?\", if multiple results are returned, ask user for clarification",
+                        "description": "A query for information to be answered, query should be phrased as a question, for example \"Available on the server?\" \"Is series Watchmen available on the server in the Ultimate Cut?\" \"What is Cats movie tmdbId?\" \"Who added series Game of Thrones to the server?\" \"What is series Game of Thrones tvdbId?\", if multiple results are returned, ask user for clarification",
                     }
                 },
                 "required": ["format", "query"],
@@ -140,7 +140,7 @@ async fn run_function(
     name: String,
     args: serde_json::Value,
     user_name: &str,
-) -> Result<String, Box<dyn Error>> {
+) -> anyhow::Result<String> {
     match name.as_str() {
         "web_search" => {
             plugins::websearch::ai_search(args["query"].as_str().unwrap().to_string()).await
@@ -200,7 +200,7 @@ async fn run_function(
             )
             .await
         }
-        _ => Err("Function not found".into()),
+        _ => Err(anyhow!("Function not found")),
     }
 }
 
