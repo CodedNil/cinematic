@@ -311,10 +311,20 @@ pub async fn run_chat_completition(
             // Get function response as string if either ok or error
             let function_response_message =
                 function_response.map_or_else(|error| error.to_string(), |response| response);
+            // Truncate the function response to 100 characters
+            let function_response_short = if function_response_message.len() > 150 {
+                let trimmed_message = function_response_message
+                    .chars()
+                    .take(150)
+                    .collect::<String>();
+                format!("{trimmed_message}...")
+            } else {
+                function_response_message.clone()
+            };
 
             // Edit the discord message with function call results
             extra_history_text.push_str(
-                format!("🎬 Ran function {function_name} {function_response_message}\n",).as_str(),
+                format!("🎬 Ran function {function_name} {function_response_short}\n",).as_str(),
             );
             let ctx_c = ctx.clone();
             let mut bot_message_c = bot_message.clone();

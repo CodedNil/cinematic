@@ -44,7 +44,7 @@ pub async fn lookup(media_type: Format, query: String) -> anyhow::Result<String>
     };
     for term in &terms {
         arr_searches.push(apis::arr_request(
-            apis::HttpMethod::Get,
+            reqwest::Method::GET,
             arr_service.clone(),
             format!("/api/v3/{media_type}/lookup?term={term}"),
             None,
@@ -93,7 +93,7 @@ pub async fn add(
     };
 
     // Perform the API request
-    let mut media = apis::arr_request(apis::HttpMethod::Get, service.clone(), lookup_path, None)
+    let mut media = apis::arr_request(reqwest::Method::GET, service.clone(), lookup_path, None)
         .await
         .map_err(|e| anyhow!("Couldn't add {}, {}", media_type, e))?;
     // If the media type is a series, get the first result
@@ -163,7 +163,7 @@ pub async fn add(
     let response = match media_type {
         Format::Movie => {
             apis::arr_request(
-                apis::HttpMethod::Post,
+                reqwest::Method::POST,
                 apis::ArrService::Radarr,
                 "/api/v3/movie".to_string(),
                 Some(media),
@@ -172,7 +172,7 @@ pub async fn add(
         }
         Format::Series => {
             apis::arr_request(
-                apis::HttpMethod::Post,
+                reqwest::Method::POST,
                 apis::ArrService::Sonarr,
                 "/api/v3/series".to_string(),
                 Some(media),
@@ -203,7 +203,7 @@ pub async fn setres(media_type: Format, id: String, quality: String) -> anyhow::
     };
 
     // Perform the API request
-    let mut media = apis::arr_request(apis::HttpMethod::Get, service.clone(), lookup_path, None)
+    let mut media = apis::arr_request(reqwest::Method::GET, service.clone(), lookup_path, None)
         .await
         .map_err(|e| anyhow!("Couldn't change resolution of {}, {}", media_type, e))?;
     // If the media type is a series, get the first result
@@ -259,7 +259,7 @@ pub async fn push(media_type: Format, media_json: Value) {
     match media_type {
         Format::Movie => {
             apis::arr_request(
-                apis::HttpMethod::Put,
+                reqwest::Method::PUT,
                 apis::ArrService::Radarr,
                 format!("/api/v3/movie/{media_id}"),
                 Some(media),
@@ -268,7 +268,7 @@ pub async fn push(media_type: Format, media_json: Value) {
         }
         Format::Series => {
             apis::arr_request(
-                apis::HttpMethod::Put,
+                reqwest::Method::PUT,
                 apis::ArrService::Sonarr,
                 format!("/api/v3/series/{media_id}"),
                 Some(media),
@@ -288,7 +288,7 @@ pub async fn remove(media_type: Format, id: String, user_name: &str) -> anyhow::
     };
 
     // Perform the API request
-    let mut media = apis::arr_request(apis::HttpMethod::Get, service.clone(), lookup_path, None)
+    let mut media = apis::arr_request(reqwest::Method::GET, service.clone(), lookup_path, None)
         .await
         .map_err(|e| anyhow!("Couldn't remove {}, {}", media_type, e))?;
 
@@ -334,6 +334,9 @@ pub async fn wanted(media_type: Format, query: String, user_name: &str) -> anyho
         let none_media = get_media_with_no_user_tags(media_type.clone())
             .await
             .join(", ");
+        if none_media.is_empty() {
+            return Ok(format!("{media_type} with no users requests: none"));
+        }
         return Ok(format!("{media_type} with no users requests: {none_media}"));
     }
     let user: String = if query == "self" {
@@ -344,6 +347,9 @@ pub async fn wanted(media_type: Format, query: String, user_name: &str) -> anyho
     let user_media = get_media_with_user_tag(media_type.clone(), &user)
         .await
         .join(", ");
+    if user_media.is_empty() {
+        return Ok(format!("{media_type} requested by {user}: none"));
+    }
     Ok(format!("{media_type} requested by {user}: {user_media}"))
 }
 
@@ -351,7 +357,7 @@ pub async fn wanted(media_type: Format, query: String, user_name: &str) -> anyho
 pub async fn check_downloads() -> anyhow::Result<String> {
     // Fetch the current downloads queue from Radarr
     let radarr_downloads_value = apis::arr_request(
-        apis::HttpMethod::Get,
+        reqwest::Method::GET,
         apis::ArrService::Radarr,
         "/api/v3/queue".to_string(),
         None,
@@ -360,7 +366,7 @@ pub async fn check_downloads() -> anyhow::Result<String> {
 
     // Fetch the current downloads queue from Sonarr
     let sonarr_downloads_value = apis::arr_request(
-        apis::HttpMethod::Get,
+        reqwest::Method::GET,
         apis::ArrService::Sonarr,
         "/api/v3/queue".to_string(),
         None,
@@ -432,7 +438,7 @@ async fn get_user_tag_id(media_type: Format, user_name: &str) -> Option<u64> {
     };
     sync_user_tags(media_type.clone()).await;
     let all_tags = apis::arr_request(
-        apis::HttpMethod::Get,
+        reqwest::Method::GET,
         service,
         "/api/v3/tag".to_string(),
         None,
@@ -478,7 +484,7 @@ async fn sync_user_tags(media_type: Format) {
 
     // Get all current tags
     let all_tags = apis::arr_request(
-        apis::HttpMethod::Get,
+        reqwest::Method::GET,
         service.clone(),
         "/api/v3/tag".to_string(),
         None,
@@ -505,7 +511,7 @@ async fn sync_user_tags(media_type: Format) {
     for tag in tags_to_add {
         let body = serde_json::json!({ "label": tag }).to_string();
         apis::arr_request(
-            apis::HttpMethod::Post,
+            reqwest::Method::POST,
             service.clone(),
             "/api/v3/tag".to_string(),
             Some(body),
@@ -532,7 +538,7 @@ async fn sync_user_tags(media_type: Format) {
             .as_i64()
             .unwrap();
         apis::arr_request(
-            apis::HttpMethod::Delete,
+            reqwest::Method::DELETE,
             service.clone(),
             format!("/api/v3/tag/{tag_id}"),
             None,
@@ -548,7 +554,7 @@ async fn get_media_with_no_user_tags(media_type: Format) -> Vec<String> {
         Format::Movie => ("/api/v3/movie".to_string(), apis::ArrService::Radarr),
         Format::Series => ("/api/v3/series".to_string(), apis::ArrService::Sonarr),
     };
-    let all_media = apis::arr_request(apis::HttpMethod::Get, service, url, None).await;
+    let all_media = apis::arr_request(reqwest::Method::GET, service, url, None).await;
     // Return error if media is an error
     if all_media.is_err() {
         return Vec::new();
@@ -571,11 +577,17 @@ async fn get_media_with_user_tag(media_type: Format, user_name: &str) -> Vec<Str
         Format::Series => ("/api/v3/series".to_string(), apis::ArrService::Sonarr),
     };
     // Get user tag id
+    println!("Getting user tag id");
     let tag_id = get_user_tag_id(media_type.clone(), user_name).await;
     // Get all media and return ones the user requested
-    let all_media = apis::arr_request(apis::HttpMethod::Get, service, url, None).await;
+    println!("Getting all media");
+    let all_media = apis::arr_request(reqwest::Method::GET, service, url, None).await;
     // Return error if media is an error
     if all_media.is_err() {
+        println!(
+            "Error getting media with user tag: {}",
+            all_media.err().unwrap()
+        );
         return Vec::new();
     }
     let all_media = all_media.unwrap();
@@ -648,7 +660,7 @@ async fn media_to_plain_english(media_type: &Format, response: Value, num: usize
             if let Value::Array(tags) = &item["tags"] {
                 // Get all current tags
                 let all_tags = apis::arr_request(
-                    apis::HttpMethod::Get,
+                    reqwest::Method::GET,
                     match media_type {
                         Format::Movie => apis::ArrService::Radarr,
                         Format::Series => apis::ArrService::Sonarr,

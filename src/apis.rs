@@ -21,14 +21,6 @@ impl std::fmt::Display for ArrService {
     }
 }
 
-#[derive(Debug)]
-pub enum HttpMethod {
-    Get,
-    Post,
-    Put,
-    Delete,
-}
-
 pub fn get_env_variable(key: &str) -> String {
     match env::var(key) {
         Ok(value) => value,
@@ -141,7 +133,7 @@ pub async fn gpt_info_query(model: String, data: String, prompt: String) -> Resu
 
 /// Make a request to an arr service
 pub async fn arr_request(
-    method: HttpMethod,
+    method: Method,
     service: ArrService,
     url: String,
     data: Option<String>,
@@ -156,17 +148,8 @@ pub async fn arr_request(
 
     let client = reqwest::Client::new();
     let mut request = client
-        .request(
-            match method {
-                HttpMethod::Get => Method::GET,
-                HttpMethod::Post => Method::POST,
-                HttpMethod::Put => Method::PUT,
-                HttpMethod::Delete => Method::DELETE,
-            },
-            format!("{arr_url}{url}"),
-        )
-        .basic_auth(username, Some(password))
-        .header("X-Api-Key", arr_api_key);
+        .request(method, format!("{arr_url}{url}?apikey={arr_api_key}"))
+        .basic_auth(username, Some(password));
 
     if let Some(body_data) = data {
         request = request
@@ -174,6 +157,6 @@ pub async fn arr_request(
             .body(body_data);
     }
 
-    let response = request.send().await?.text().await?;
-    serde_json::from_str(&response).map_err(Into::into)
+    let response: serde_json::Value = request.send().await?.json().await?;
+    Ok(response)
 }
