@@ -2,7 +2,7 @@ use async_openai::types::{
     ChatCompletionRequestMessageArgs, CreateChatCompletionRequestArgs, Role,
 };
 use async_openai::Client as OpenAiClient;
-use reqwest::Method;
+use reqwest::{Client, Method};
 use std::env;
 use std::fs::File;
 use std::io::prelude::*;
@@ -146,10 +146,15 @@ pub async fn arr_request(
     let username = get_env_variable(format!("{service_name}_AUTHUSER").as_str());
     let password = get_env_variable(format!("{service_name}_AUTHPASS").as_str());
 
-    let client = reqwest::Client::new();
+    let client = Client::builder().cookie_store(true).build()?;
+    let last_sep = if url.contains('?') { "&" } else { "?" };
     let mut request = client
-        .request(method, format!("{arr_url}{url}?apikey={arr_api_key}"))
+        .request(
+            method,
+            format!("{arr_url}{url}{last_sep}apikey={arr_api_key}"),
+        )
         .basic_auth(username, Some(password));
+    println!("{arr_url}{url}{last_sep}apikey={arr_api_key}");
 
     if let Some(body_data) = data {
         request = request

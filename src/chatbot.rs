@@ -37,17 +37,21 @@ fn get_functions() -> Vec<async_openai::types::ChatCompletionFunctions> {
                         "description": "The format of the media to be searched for",
                         "enum": ["movie", "series"],
                     },
+                    "searches": {
+                        "type": "string",
+                        "description": "List of strings to search for separated by pipe |, for example \"Game of Thrones|Watchmen|Cats\"",
+                    },
                     "query": {
                         "type": "string",
-                        "description": "A query for information to be answered, query should be phrased as a question, for example \"Available on the server?\" \"Is series Watchmen available on the server in the Ultimate Cut?\" \"What is Cats movie tmdbId?\" \"Who added series Game of Thrones to the server?\" \"What is series Game of Thrones tvdbId?\", if multiple results are returned, ask user for clarification",
+                        "description": "A query for information to be answered, query should be phrased as a question, for example \"Available on the server?\" \"Is series Watchmen available on the server in the Ultimate Cut?\" \"What is Cats movie tmdbId/tvdbId?\" \"Who added series Game of Thrones to the server?\" \"What is series Game of Thrones tmdbId/tvdbId?\", if multiple results are returned, ask user for clarification",
                     }
                 },
-                "required": ["format", "query"],
+                "required": ["format", "searches", "query"],
             }))
             .build().unwrap(),
         ChatCompletionFunctionsArgs::default()
             .name("media_add")
-            .description("Adds media to the server, perform a lookup first to get the tmdbId or tvdbId")
+            .description("Adds media to the server, perform a lookup first to get the tmdbId/tvdbId")
             .parameters(json!({
                 "type": "object",
                 "properties": {
@@ -160,6 +164,7 @@ async fn run_function(
                     "series" => plugins::media::Format::Series,
                     _ => plugins::media::Format::Movie,
                 },
+                args["searches"].as_str().unwrap().to_string(),
                 args["query"].as_str().unwrap().to_string(),
             )
             .await

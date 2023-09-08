@@ -18,23 +18,8 @@ impl std::fmt::Display for Format {
 }
 
 /// Perform a lookup of movies with ai processing to answer a prompt
-pub async fn lookup(media_type: Format, query: String) -> anyhow::Result<String> {
-    // replace tmdbId with tvdbID if media_type is series in query
-    let query = if matches!(media_type, Format::Series) {
-        query.replace("tmdbId", "tvdbId")
-    } else {
-        query
-    };
-
-    let prompt = match media_type {
-        Format::Movie => "The above text is a query to lookup movies, from the text above gather a list of movie titles mentioned, mention each movies title in its core form such as ('Avatar: The Way of Water' to 'Avatar', 'The Lord of the Rings: Return of the King Ultimate Cut' to just 'Lord of the Rings', 'Thor 2' to 'Thor'), return a list with ; divider on a single line".to_string(),
-        Format::Series => "The above text is a query to lookup series, from the text above gather a list of series titles mentioned, mention each series title in its core form such as ('Stargate: SG1' to 'Stargate', 'The Witcher' to just 'Witcher'), return a list with ; divider on a single line".to_string(),
-    };
-    // Use gpt to get a list of all movies to search for
-    let response = apis::gpt_info_query("gpt-4".to_string(), query.clone(), prompt)
-        .await
-        .unwrap_or_default();
-    let terms: Vec<String> = response.split(';').map(|s| s.trim().to_string()).collect();
+pub async fn lookup(media_type: Format, searches: String, query: String) -> anyhow::Result<String> {
+    let terms: Vec<String> = searches.split('|').map(|s| s.trim().to_string()).collect();
 
     // Get list of searches per term
     let mut arr_searches = vec![];
@@ -43,10 +28,11 @@ pub async fn lookup(media_type: Format, query: String) -> anyhow::Result<String>
         Format::Series => apis::ArrService::Sonarr,
     };
     for term in &terms {
+        let cleaned_term = term.replace(' ', "%20");
         arr_searches.push(apis::arr_request(
             reqwest::Method::GET,
             arr_service.clone(),
-            format!("/api/v3/{media_type}/lookup?term={term}"),
+            format!("/api/v3/{media_type}/lookup?term={cleaned_term}"),
             None,
         ));
     }
@@ -577,7 +563,7 @@ async fn get_media_with_user_tag(media_type: Format, user_name: &str) -> Vec<Str
         Format::Series => ("/api/v3/series".to_string(), apis::ArrService::Sonarr),
     };
     // Get user tag id
-    println!("Getting user tag id");
+    println!("Getting user tag id {} {}", media_type.clone(), user_name);
     let tag_id = get_user_tag_id(media_type.clone(), user_name).await;
     // Get all media and return ones the user requested
     println!("Getting all media");

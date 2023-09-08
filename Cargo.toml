@@ -15,7 +15,7 @@ chrono = "0.4"
 futures = "0.3"
 rand = "0.8"
 regex = "1.8"
-reqwest = "0.11"
+reqwest = { version = "0.11", features = ["cookies"] }
 scraper = "0.17"
 serde = "1.0"
 serde_json = "1.0"
