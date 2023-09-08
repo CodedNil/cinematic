@@ -118,7 +118,7 @@ fn get_functions() -> Vec<async_openai::types::ChatCompletionFunctions> {
             .build().unwrap(),
         ChatCompletionFunctionsArgs::default()
             .name("media_wanted")
-            .description("Returns a list of series that user has requested, user can be self for the user that spoke, or none to get a list of series that noone has requested, if user asks have they requested x or what they have requested etc")
+            .description("Returns a list of series that user or noone has requested, if user asks \"What movies have I added\" or \"Have I requested X\" or \"What series has noone requested\". Group and condense movies from recognizable franchises or universes into a single category. For instance, movies from the Marvel Cinematic Universe (like Avengers, Iron Man, Thor, etc.) should be summarized as 'X Marvel Cinematic Universe movies'. Similarly, trilogies or series like 'The Dark Knight' should be grouped as 'The Dark Knight trilogy'. Standalone movies or films not part of a recognizable series should be listed individually. Always begin the response by specifying the total number of movies added. Aim for the most condensed list while retaining clarity knowing that the user can always request more specific detail.")
             .parameters(json!({
                 "type": "object",
                 "properties": {
@@ -129,7 +129,7 @@ fn get_functions() -> Vec<async_openai::types::ChatCompletionFunctions> {
                     },
                     "user": {
                         "type": "string",
-                        "description": "The id of the media item",
+                        "description": "Self for the user that spoke, none to get a list of movies or series that noone has requested",
                         "enum": ["self", "none"],
                     },
                 },
