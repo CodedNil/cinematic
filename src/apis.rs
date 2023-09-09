@@ -104,12 +104,15 @@ pub async fn gpt_info_query(model: String, data: String, prompt: String) -> Resu
     let mut tries = 0;
     let response = loop {
         let response = OpenAiClient::new().chat().create(request.clone()).await;
-        if let Ok(response) = response {
-            break Ok(response);
-        }
-        tries += 1;
-        if tries >= 3 {
-            break response;
+        match response {
+            Ok(response) => break Ok(response),
+            Err(error) => {
+                println!("Failed to get response from openai: {error:?}");
+                tries += 1;
+                if tries >= 3 {
+                    break Err(error);
+                }
+            }
         }
     };
     // Return from errors

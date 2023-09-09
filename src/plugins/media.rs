@@ -18,6 +18,20 @@ impl std::fmt::Display for Format {
     }
 }
 
+pub fn query_server_args(
+    args: HashMap<String, String>,
+) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>> {
+    let format = match args.get("format").unwrap().as_str() {
+        "series" => Format::Series,
+        _ => Format::Movie,
+    };
+    let query = args.get("query").unwrap().to_string();
+    let details = args.get("details").unwrap().to_string();
+    let fut = async move { query_server(format, query, details).await };
+    drop(args);
+    Box::pin(fut)
+}
+
 pub fn lookup_args(
     args: HashMap<String, String>,
 ) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>> {
@@ -91,6 +105,43 @@ pub fn downloads_args(
     Box::pin(fut)
 }
 
+/// Perform a query against the servers media with ai processing to answer a prompt
+async fn query_server(
+    media_type: Format,
+    query: String,
+    details: String,
+) -> anyhow::Result<String> {
+    let (url, service) = match media_type {
+        Format::Movie => ("/api/v3/movie".to_string(), apis::ArrService::Radarr),
+        Format::Series => ("/api/v3/series".to_string(), apis::ArrService::Sonarr),
+    };
+    let all_media = apis::arr_request(reqwest::Method::GET, service, url, None).await?;
+
+    let details: Vec<String> = details.split(',').map(|s| s.trim().to_string()).collect();
+
+    let output_details = OutputDetails {
+        availability: details.contains(&"availability".to_string()),
+        quality: details.contains(&"quality".to_string()),
+        tags: details.contains(&"tags".to_string()),
+        db_id: details.contains(&"db_id".to_string()),
+        file_details: details.contains(&"file_details".to_string()),
+        genres: details.contains(&"genres".to_string()),
+    };
+
+    let media_string = media_to_plain_english(&media_type, all_media, 0, output_details).await?;
+
+    // Search with gpt through series and movies to get ones of relevance
+    let response = apis::gpt_info_query(
+        "gpt-3.5-turbo-16k".to_string(),
+        media_string,
+        format!("Using very concise language\nBased on the given information and only this information give your best answer to, {query}"),
+    )
+    .await
+    .unwrap_or_default();
+
+    Ok(response)
+}
+
 /// Perform a lookup of movies with ai processing to answer a prompt
 async fn lookup(media_type: Format, searches: String, query: String) -> anyhow::Result<String> {
     let terms: Vec<String> = searches.split('|').map(|s| s.trim().to_string()).collect();
@@ -118,12 +169,27 @@ async fn lookup(media_type: Format, searches: String, query: String) -> anyhow::
     for search in arr_searches.iter().flatten() {
         let search_results = search.clone();
         // Trim the searches so each only contains 5 results max and output plain english
-        media_strings.push(media_to_plain_english(&media_type, search_results, 5).await?);
+        media_strings.push(
+            media_to_plain_english(
+                &media_type,
+                search_results,
+                10,
+                OutputDetails {
+                    availability: true,
+                    quality: true,
+                    tags: true,
+                    db_id: true,
+                    file_details: true,
+                    genres: false,
+                },
+            )
+            .await?,
+        );
     }
 
     // Search with gpt through series and movies to get ones of relevance
     let response = apis::gpt_info_query(
-        "gpt-4".to_string(),
+        "gpt-3.5-turbo".to_string(),
         media_strings.join("\n"),
         format!("Using very concise language\nBased on the given information and only this information give your best answer to, {query}"),
     )
@@ -175,20 +241,7 @@ async fn add(
         media = media[0].clone();
     };
 
-    // Map quality strings to quality profile ids
-    let quality_profiles: HashMap<&str, u8> = [
-        ("SD", 2),
-        ("720p", 3),
-        ("1080p", 4),
-        ("2160p", 5),
-        ("720p/1080p", 6),
-        ("Any", 7),
-    ]
-    .iter()
-    .copied()
-    .collect();
-    // Default to 4 (1080p) if the quality string is not found
-    let quality_profile_id: u8 = *quality_profiles.get(quality.as_str()).unwrap_or(&4);
+    let quality_profile_id = get_quality_profile_id(&quality);
 
     let tag_id = get_user_tag_id(media_type.clone(), user_name).await;
 
@@ -285,20 +338,7 @@ async fn setres(media_type: Format, id: String, quality: String) -> anyhow::Resu
         media = media[0].clone();
     };
 
-    // Map quality strings to quality profile ids
-    let quality_profiles: HashMap<&str, u8> = [
-        ("SD", 2),
-        ("720p", 3),
-        ("1080p", 4),
-        ("2160p", 5),
-        ("720p/1080p", 6),
-        ("Any", 7),
-    ]
-    .iter()
-    .copied()
-    .collect();
-    // Default to 4 (1080p) if the quality string is not found
-    let quality_profile_id: u8 = *quality_profiles.get(quality.as_str()).unwrap_or(&4);
+    let quality_profile_id = get_quality_profile_id(&quality);
 
     // Check if the media item exists on the server
     if let Value::Number(id) = &media["id"] {
@@ -687,14 +727,44 @@ fn sizeof_fmt(mut num: f64) -> String {
     format!("{:.2} {}", num, units[index])
 }
 
+/// Get quality profile from string
+fn get_quality_profile_id(quality: &str) -> u8 {
+    // Map quality strings to quality profile ids
+    let quality_profiles: HashMap<&str, u8> = [
+        ("SD", 2),
+        ("720p", 3),
+        ("1080p", 4),
+        ("2160p", 5),
+        ("720p/1080p", 6),
+        ("any quality", 7),
+    ]
+    .iter()
+    .copied()
+    .collect();
+    // Default to 4 (1080p) if the quality string is not found
+    *quality_profiles.get(quality).unwrap_or(&4)
+}
+
+#[derive(Debug, Clone)]
+#[allow(clippy::struct_excessive_bools)]
+struct OutputDetails {
+    availability: bool,
+    quality: bool,
+    tags: bool,
+    db_id: bool,
+    file_details: bool,
+    genres: bool,
+}
+
 /// Convert json of movies/series data to plain english
 #[allow(clippy::too_many_lines)]
 async fn media_to_plain_english(
     media_type: &Format,
     response: Value,
     num: usize,
+    output_details: OutputDetails,
 ) -> anyhow::Result<String> {
-    let quality_profiles: HashMap<u64, &str> = [
+    let quality_profiles = [
         (2, "SD"),
         (3, "720p"),
         (4, "1080p"),
@@ -704,7 +774,7 @@ async fn media_to_plain_english(
     ]
     .iter()
     .copied()
-    .collect();
+    .collect::<HashMap<u64, &str>>();
 
     // Get all current tags
     let all_tags = apis::arr_request(
@@ -718,34 +788,45 @@ async fn media_to_plain_english(
     )
     .await?;
 
+    let media_items = response
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("Expected array from response"))?;
+
     let mut results = Vec::new();
-    if let Value::Array(media_items) = response {
-        for item in media_items {
-            let mut result = Vec::new();
-            // Get title and year
-            if let (Value::String(title), Value::Number(year)) = (&item["title"], &item["year"]) {
-                result.push(format!("{title} ({year})"));
-            }
-            // Get id and availability
+    for item in media_items {
+        let mut result = Vec::new();
+        // Get title and year
+        if let (Value::String(title), Value::Number(year)) = (&item["title"], &item["year"]) {
+            result.push(format!("{title} ({year})"));
+        }
+
+        // Get id and availability
+        if output_details.availability {
             if let Value::Number(id) = &item["id"] {
                 if id.as_u64().unwrap() == 0 {
                     result.push("unavailable on the server".to_string());
                 } else {
                     result.push("available on the server".to_string());
-                    result.push(format!("{media_type} id {id}"));
+                    result.push(format!("id on server {id}"));
                 }
             } else {
                 result.push("unavailable on the server".to_string());
             }
-            // Get quality
+        }
+
+        // Get quality
+        if output_details.quality {
             if let Value::Number(quality_profile_id) = &item["qualityProfileId"] {
                 if let Some(quality_profile_id_u64) = quality_profile_id.as_u64() {
                     if let Some(quality) = quality_profiles.get(&quality_profile_id_u64) {
-                        result.push(format!("requested at quality {quality}"));
+                        result.push(format!("requested {quality}"));
                     }
                 }
             }
-            // Get tags added-users
+        }
+
+        // Get tags added-users
+        if output_details.tags {
             if let Value::Array(tags) = &item["tags"] {
                 // Get tags added-users
                 let mut tag_labels = String::new();
@@ -759,7 +840,9 @@ async fn media_to_plain_english(
                                     if !tag_labels.is_empty() {
                                         tag_labels.push_str(", ");
                                     }
-                                    tag_labels.push_str(label.as_str().unwrap());
+                                    tag_labels.push_str(
+                                        label.as_str().unwrap().replace("added-", "").as_str(),
+                                    );
                                     break;
                                 }
                             }
@@ -770,13 +853,19 @@ async fn media_to_plain_english(
                     result.push(format!("added by {tag_labels}"));
                 }
             }
-            match media_type {
-                Format::Movie => {
-                    // Get tmdbId
+        }
+
+        // File details
+        match media_type {
+            Format::Movie => {
+                // Get tmdbId
+                if output_details.db_id {
                     if let Value::Number(tmdb_id) = &item["tmdbId"] {
                         result.push(format!("tmdbId {tmdb_id}"));
-                    };
-                    // Get movie file info
+                    }
+                }
+                // Get movie file info
+                if output_details.file_details {
                     if item["hasFile"].as_bool().unwrap_or(false) {
                         if let Value::Number(size_on_disk) = &item["sizeOnDisk"] {
                             result.push(format!(
@@ -797,19 +886,38 @@ async fn media_to_plain_english(
                         result.push("no file on disk".to_string());
                     }
                 }
-                Format::Series => {
-                    // Get tvdbId
+            }
+            Format::Series => {
+                // Get tvdbId
+                if output_details.db_id {
                     if let Value::Number(tvdb_id) = &item["tvdbId"] {
                         result.push(format!("tvdbId {tvdb_id}"));
                     }
                 }
             }
-            results.push(result.join(";"));
+        }
 
-            if results.len() >= num {
-                break;
+        // Get genres
+        if output_details.genres {
+            if let Value::Array(genres) = &item["genres"] {
+                let genres_string = genres
+                    .iter()
+                    .filter_map(serde_json::Value::as_str)
+                    .collect::<Vec<&str>>()
+                    .join(",");
+                if !genres_string.is_empty() {
+                    result.push(format!("genres {genres_string}"));
+                }
             }
         }
+
+        // Push result to results
+        results.push(result.join(";"));
+
+        if num != 0 && results.len() >= num {
+            break;
+        }
     }
+
     Ok(results.join("\n"))
 }

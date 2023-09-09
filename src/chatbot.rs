@@ -120,9 +120,25 @@ fn get_functions() -> Vec<Func> {
             "Search web for query",
             vec![Param::new(
                 "query",
-                "A query for information to be answered",
+                "A query for information to be answered, phrased as a question",
             )],
             plugins::websearch::ai_search_args,
+        ),
+        Func::new(
+            "media_query",
+            "Performs a query against media on the server",
+            vec![
+                format_param.clone(),
+                Param::new(
+                    "query",
+                    "A query for information to be answered, phrased as a question, for example \"What action movies are available?\"",
+                ),
+                Param::new(
+                    "details",
+                    "Details to be included in the search, comma separated list from the following: \"availability,quality,tags,db_id,file_details,genres\"",
+                ),
+            ],
+            plugins::media::query_server_args,
         ),
         Func::new(
             "media_lookup",
@@ -200,7 +216,9 @@ async fn run_function(
                 args_map.insert(key.clone(), value.as_str().unwrap().to_string());
             }
             println!("Running function {name} with args {args_map:?}");
-            return (func.call_func)(args_map).await;
+            let response = (func.call_func)(args_map).await;
+            println!("Function {name} response: {response:?}",);
+            return response;
         }
     }
 
