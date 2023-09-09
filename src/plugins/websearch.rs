@@ -1,5 +1,8 @@
+use std::{collections::HashMap, pin::Pin};
+
 use crate::apis;
 use anyhow::anyhow;
+use futures::Future;
 use regex::Regex;
 use reqwest;
 use scraper::{Html, Selector};
@@ -19,11 +22,21 @@ struct SearchBrave {
     summary: String,
 }
 
+pub fn ai_search_args(
+    args: HashMap<String, String>,
+) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>> {
+    let query = args.get("query").unwrap().to_string();
+    let fut = async move { ai_search(query).await };
+    drop(args);
+    Box::pin(fut)
+}
+
 async fn brave(query: String) -> anyhow::Result<SearchBrave> {
     let response_search = reqwest::get(format!("https://search.brave.com/search?q={query}")).await;
     if response_search.is_err() {
         return Err(anyhow!("Failed to fetch brave search"));
     }
+
     // Get the summarizer text if exists
     let response_summary = reqwest::get(format!(
         "https://search.brave.com/api/summarizer?key={query}:us:en"
@@ -46,13 +59,12 @@ async fn brave(query: String) -> anyhow::Result<SearchBrave> {
     // Parse the search results
     let html_text = response_search.unwrap().text().await.unwrap();
     let document = Html::parse_document(&html_text);
-    let selector = Selector::parse(".snippet").unwrap();
 
     let brave_organic_search_results: Vec<SearchResultBrave> = document
-        .select(&selector)
+        .select(&Selector::parse(".snippet").unwrap())
         .filter_map(|element| {
             let title = element
-                .select(&Selector::parse(".snippet-title").unwrap())
+                .select(&Selector::parse(".title").unwrap())
                 .next()?
                 .text()
                 .collect::<String>()
@@ -64,7 +76,7 @@ async fn brave(query: String) -> anyhow::Result<SearchBrave> {
             }
 
             let link = element
-                .select(&Selector::parse(".result-header").unwrap())
+                .select(&Selector::parse(".h").unwrap())
                 .next()?
                 .value()
                 .attr("href")?
@@ -83,14 +95,12 @@ async fn brave(query: String) -> anyhow::Result<SearchBrave> {
                 .trim()
                 .to_string();
 
-            let (published, snippet) = if let Some(index) = raw_snippet.find(" -\n") {
-                let (published, snippet) = raw_snippet.split_at(index);
-                (
-                    published.trim().to_string(),
-                    snippet[2..].trim().to_string(),
-                )
-            } else {
-                (String::new(), raw_snippet)
+            let (published, snippet) = match raw_snippet.find(" - ") {
+                Some(index) => {
+                    let (p, s) = raw_snippet.split_at(index);
+                    (p.trim().to_string(), s[2..].trim().to_string())
+                }
+                None => (String::new(), raw_snippet.to_string()),
             };
 
             let rating = element
@@ -120,7 +130,7 @@ async fn brave(query: String) -> anyhow::Result<SearchBrave> {
 }
 
 /// Perform a search with ai processing to answer a prompt
-pub async fn ai_search(query: String) -> anyhow::Result<String> {
+async fn ai_search(query: String) -> anyhow::Result<String> {
     // Get the search results
     let mut search_results: SearchBrave = brave(query.clone()).await.unwrap();
     if search_results.results.is_empty() {
@@ -184,5 +194,5 @@ pub async fn ai_search(query: String) -> anyhow::Result<String> {
     if response.is_err() {
         return Err(anyhow!("Couldn't find an answer"));
     }
-    Ok(response.unwrap())
+    Ok(response.unwrap().replace('\n', " "))
 }

@@ -1,150 +1,187 @@
+use std::{collections::HashMap, pin::Pin};
+
 use crate::plugins;
 use anyhow::anyhow;
 use async_openai::types::{
-    ChatCompletionFunctionsArgs, ChatCompletionRequestMessage, ChatCompletionRequestMessageArgs,
-    CreateChatCompletionRequestArgs, Role,
+    ChatCompletionFunctions, ChatCompletionFunctionsArgs, ChatCompletionRequestMessage,
+    ChatCompletionRequestMessageArgs, CreateChatCompletionRequestArgs, Role,
 };
 use chrono::Local;
+use futures::Future;
 use serde_json::json;
 use serenity::{model::channel::Message as DiscordMessage, prelude::Context as DiscordContext};
 
+const USER_EMOJI: &str = "💬 ";
+const BOT_EMOJI: &str = "☑️ ";
+
+#[derive(Debug)]
+struct Func {
+    name: String,
+    description: String,
+    parameters: Vec<Param>,
+    call_func: FuncType,
+}
+
+impl Func {
+    fn new(name: &str, description: &str, parameters: Vec<Param>, call_func: FuncType) -> Self {
+        Func {
+            name: name.to_owned(),
+            description: description.to_owned(),
+            parameters,
+            call_func,
+        }
+    }
+}
+
+type FuncType =
+    fn(HashMap<String, String>) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>>;
+
+#[derive(Debug, Clone)]
+struct Param {
+    name: String,
+    description: String,
+    required: bool,
+    enum_values: Option<Vec<String>>,
+}
+impl Param {
+    fn new(name: &str, description: &str) -> Self {
+        Param {
+            name: name.to_owned(),
+            description: description.to_owned(),
+            required: true,
+            enum_values: None,
+        }
+    }
+
+    fn with_enum_values(mut self, enum_values: &[&str]) -> Self {
+        self.enum_values = Some(enum_values.iter().map(|&val| val.to_owned()).collect());
+        self
+    }
+
+    fn to_json(&self) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
+        map.insert("description".to_owned(), json!(self.description));
+        map.insert("type".to_owned(), json!("string"));
+        if let Some(ref enum_values) = self.enum_values {
+            map.insert("enum".to_owned(), json!(enum_values));
+        }
+        json!(map)
+    }
+}
+
+fn func_to_chat_completion(func: &Func) -> ChatCompletionFunctions {
+    let properties: serde_json::Map<String, _> = func
+        .parameters
+        .iter()
+        .map(|param| (param.name.clone(), param.to_json()))
+        .collect();
+
+    let required: Vec<_> = func
+        .parameters
+        .iter()
+        .filter(|&param| param.required)
+        .map(|param| param.name.clone())
+        .collect();
+
+    ChatCompletionFunctionsArgs::default()
+        .name(&func.name)
+        .description(&func.description)
+        .parameters(json!({
+            "type": "object",
+            "properties": properties,
+            "required": required,
+        }))
+        .build()
+        .unwrap()
+}
+
+fn get_chat_completions() -> Vec<ChatCompletionFunctions> {
+    get_functions()
+        .iter()
+        .map(func_to_chat_completion)
+        .collect()
+}
+
 /// Get available functions data
-#[allow(clippy::too_many_lines)]
-fn get_functions() -> Vec<async_openai::types::ChatCompletionFunctions> {
+fn get_functions() -> Vec<Func> {
+    // Common parameters for the functions
+    let format_param = Param::new("format", "The format of the media to be searched for")
+        .with_enum_values(&["movie", "series"]);
+    let quality_param = Param::new(
+        "quality",
+        "The quality to set the media to, default to 1080p if not specified",
+    )
+    .with_enum_values(&["SD", "720p", "1080p", "2160p", "720p/1080p", "Any"]);
+    let id_param = Param::new("id", "The id of the media item");
+
+    // Create the functions
     vec![
-        ChatCompletionFunctionsArgs::default()
-            .name("web_search")
-            .description("Search web for query")
-            .parameters(json!({
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "A query for information to be answered",
-                    },
-                },
-                "required": ["query"],
-            }))
-            .build().unwrap(),
-        ChatCompletionFunctionsArgs::default()
-            .name("media_lookup")
-            .description("Search the media server for query information about a piece of media")
-            .parameters(json!({
-                "type": "object",
-                "properties": {
-                    "format": {
-                        "type": "string",
-                        "description": "The format of the media to be searched for",
-                        "enum": ["movie", "series"],
-                    },
-                    "searches": {
-                        "type": "string",
-                        "description": "List of strings to search for separated by pipe |, for example \"Game of Thrones|Watchmen|Cats\"",
-                    },
-                    "query": {
-                        "type": "string",
-                        "description": "A query for information to be answered, query should be phrased as a question, for example \"Available on the server?\" \"Is series Watchmen available on the server in the Ultimate Cut?\" \"What is Cats movie tmdbId/tvdbId?\" \"Who added series Game of Thrones to the server?\" \"What is series Game of Thrones tmdbId/tvdbId?\", if multiple results are returned, ask user for clarification",
-                    }
-                },
-                "required": ["format", "searches", "query"],
-            }))
-            .build().unwrap(),
-        ChatCompletionFunctionsArgs::default()
-            .name("media_add")
-            .description("Adds media to the server, perform a lookup first to get the tmdbId/tvdbId")
-            .parameters(json!({
-                "type": "object",
-                "properties": {
-                    "format": {
-                        "type": "string",
-                        "description": "The format of the media to be searched for",
-                        "enum": ["movie", "series"],
-                    },
-                    "db_id": {
-                        "type": "string",
-                        "description": "The tmdb or tvdb id of the media item",
-                    },
-                    "quality": {
-                        "type": "string",
-                        "description": "The quality to set the media to, default to 1080p if not specified",
-                        "enum": ["SD", "720p", "1080p", "2160p", "720p/1080p", "Any"],
-                    },
-                },
-                "required": ["format", "id", "quality"],
-            }))
-            .build().unwrap(),
-        ChatCompletionFunctionsArgs::default()
-            .name("media_setres")
-            .description("Change the targeted resolution of a piece of media on the server, perform a lookup first to get the id")
-            .parameters(json!({
-                "type": "object",
-                "properties": {
-                    "format": {
-                        "type": "string",
-                        "description": "The format of the media to be searched for",
-                        "enum": ["movie", "series"],
-                    },
-                    "id": {
-                        "type": "string",
-                        "description": "The id of the media item",
-                    },
-                    "quality": {
-                        "type": "string",
-                        "description": "The quality to set the media to",
-                        "enum": ["SD", "720p", "1080p", "2160p", "720p/1080p", "Any"],
-                    },
-                },
-                "required": ["format", "id", "quality"],
-            }))
-            .build().unwrap(),
-        ChatCompletionFunctionsArgs::default()
-            .name("media_remove")
-            .description("Removes media from users requests, media items remain on the server if another user has requested also, perform a lookup first to get the id")
-            .parameters(json!({
-                "type": "object",
-                "properties": {
-                    "format": {
-                        "type": "string",
-                        "description": "The format of the media to be searched for",
-                        "enum": ["movie", "series"],
-                    },
-                    "id": {
-                        "type": "string",
-                        "description": "The id of the media item",
-                    },
-                },
-                "required": ["format", "id"],
-            }))
-            .build().unwrap(),
-        ChatCompletionFunctionsArgs::default()
-            .name("media_wanted")
-            .description("Returns a list of series that user or noone has requested, if user asks \"What movies have I added\" or \"Have I requested X\" or \"What series has noone requested\". Group and condense movies from recognizable franchises or universes into a single category. For instance, movies from the Marvel Cinematic Universe (like Avengers, Iron Man, Thor, etc.) should be summarized as 'X Marvel Cinematic Universe movies'. Similarly, trilogies or series like 'The Dark Knight' should be grouped as 'The Dark Knight trilogy'. Standalone movies or films not part of a recognizable series should be listed individually. Always begin the response by specifying the total number of movies added. Aim for the most condensed list while retaining clarity knowing that the user can always request more specific detail.")
-            .parameters(json!({
-                "type": "object",
-                "properties": {
-                    "format": {
-                        "type": "string",
-                        "description": "The format of the media to be searched for",
-                        "enum": ["movie", "series"],
-                    },
-                    "user": {
-                        "type": "string",
-                        "description": "Self for the user that spoke, none to get a list of movies or series that noone has requested",
-                        "enum": ["self", "none"],
-                    },
-                },
-                "required": ["format", "user"],
-            }))
-            .build().unwrap(),
-        ChatCompletionFunctionsArgs::default()
-            .name("media_downloads")
-            .description("Returns a list of series or movies that are downloading and their status, if user asks how long until a series is on etc")
-            .parameters(json!({
-                "type": "object",
-                "properties": {},
-                "required": [],
-            }))
-            .build().unwrap(),
+        Func::new(
+            "web_search",
+            "Search web for query",
+            vec![Param::new(
+                "query",
+                "A query for information to be answered",
+            )],
+            plugins::websearch::ai_search_args,
+        ),
+        Func::new(
+            "media_lookup",
+            "Search the media server for query information about a piece of media",
+            vec![
+                format_param.clone(),
+                Param::new(
+                    "searches",
+                    "List of movies/series to search for separated by pipe |, for example \"Game of Thrones|Watchmen|Cats\"",
+                ),
+                Param::new(
+                    "query",
+                    "A query for information to be answered, query should be phrased as a question, for example \"Available on the server?\" \"Is series Watchmen available on the server in the Ultimate Cut?\" \"What is Cats movie tmdbId/tvdbId?\" \"Who added series Game of Thrones to the server?\" \"What is series Game of Thrones tmdbId/tvdbId?\", if multiple results are returned, ask user for clarification",
+                ),
+            ],
+            plugins::media::lookup_args,
+        ),
+        Func::new(
+            "media_add",
+            "Adds media to the server, perform a lookup first to get the tmdbId/tvdbId",
+            vec![
+                format_param.clone(),
+                Param::new("db_id", "The tmdbId/tvdbId of the media item"),
+                quality_param.clone(),
+            ],
+            plugins::media::add_args,
+        ),
+        Func::new(
+            "media_setres",
+            "Change the targeted resolution of a piece of media on the server, perform a lookup first to get the id",
+            vec![format_param.clone(), id_param.clone(), quality_param.clone()],
+            plugins::media::setres_args,
+        ),
+        Func::new(
+            "media_remove",
+            "Removes media from users requests, media items remain on the server if another user has requested also, perform a lookup first to get the id",
+            vec![format_param.clone(), id_param.clone()],
+            plugins::media::remove_args,
+        ),
+        Func::new(
+            "media_wanted",
+            "Returns a list of series that user or noone has requested ... Aim for the most condensed list while retaining clarity knowing that the user can always request more specific detail.",
+            vec![
+                format_param.clone(),
+                Param::new(
+                    "user",
+                    "Self for the user that spoke, none to get a list of movies or series that noone has requested",
+                )
+                .with_enum_values(&["self", "none"]),
+            ],
+            plugins::media::wanted_args,
+        ),
+        Func::new(
+            "media_downloads",
+            "Returns a list of series or movies that are downloading and their status, if user asks how long until a series is on etc",
+            Vec::new(),
+            plugins::media::downloads_args,
+        ),
     ]
 }
 
@@ -154,120 +191,32 @@ async fn run_function(
     args: serde_json::Value,
     user_name: &str,
 ) -> anyhow::Result<String> {
-    match name.as_str() {
-        "web_search" => {
-            plugins::websearch::ai_search(args["query"].as_str().unwrap().to_string()).await
+    let functions = get_functions();
+
+    for func in functions {
+        if func.name == name {
+            let mut args_map = HashMap::new();
+            args_map.insert("user_name".to_string(), user_name.to_string());
+            for (key, value) in args.as_object().unwrap() {
+                args_map.insert(key.clone(), value.as_str().unwrap().to_string());
+            }
+            return (func.call_func)(args_map).await;
         }
-        "media_lookup" => {
-            plugins::media::lookup(
-                match args["format"].as_str().unwrap() {
-                    "series" => plugins::media::Format::Series,
-                    _ => plugins::media::Format::Movie,
-                },
-                args["searches"].as_str().unwrap().to_string(),
-                args["query"].as_str().unwrap().to_string(),
-            )
-            .await
-        }
-        "media_add" => {
-            plugins::media::add(
-                match args["format"].as_str().unwrap() {
-                    "series" => plugins::media::Format::Series,
-                    _ => plugins::media::Format::Movie,
-                },
-                args["db_id"].as_str().unwrap().to_string(),
-                user_name,
-                args["quality"].as_str().unwrap().to_string(),
-            )
-            .await
-        }
-        "media_setres" => {
-            plugins::media::setres(
-                match args["format"].as_str().unwrap() {
-                    "series" => plugins::media::Format::Series,
-                    _ => plugins::media::Format::Movie,
-                },
-                args["id"].as_str().unwrap().to_string(),
-                args["quality"].as_str().unwrap().to_string(),
-            )
-            .await
-        }
-        "media_remove" => {
-            plugins::media::remove(
-                match args["format"].as_str().unwrap() {
-                    "series" => plugins::media::Format::Series,
-                    _ => plugins::media::Format::Movie,
-                },
-                args["id"].as_str().unwrap().to_string(),
-                user_name,
-            )
-            .await
-        }
-        "media_wanted" => {
-            plugins::media::wanted(
-                match args["format"].as_str().unwrap() {
-                    "series" => plugins::media::Format::Series,
-                    _ => plugins::media::Format::Movie,
-                },
-                args["user"].as_str().unwrap().to_string(),
-                user_name,
-            )
-            .await
-        }
-        "media_downloads" => plugins::media::check_downloads().await,
-        _ => Err(anyhow!("Function not found")),
     }
+
+    Err(anyhow!("Function not found"))
 }
 
 /// Run the chat completition
-#[allow(clippy::too_many_lines)]
 pub async fn run_chat_completition(
-    ctx: DiscordContext,             // The discord context
-    mut bot_message: DiscordMessage, // The reply to the user
-    message_history_text: String,    // The message history text
-    users_text: String,              // The users text
-    user_name: String,               // The user name
+    ctx: DiscordContext,
+    mut bot_message: DiscordMessage,
+    message_history_text: String,
+    user_name: String,
+    chat_query: Vec<ChatCompletionRequestMessage>,
 ) {
-    // Get current date and time in DD/MM/YYYY and HH:MM:SS format
-    let date = Local::now().format("%d/%m/%Y").to_string();
-    let time = Local::now().format("%H:%M").to_string();
-
     // The initial messages to send to the API
-    let mut chat_query: Vec<ChatCompletionRequestMessage> = vec![
-        ChatCompletionRequestMessageArgs::default()
-            .role(Role::System)
-            .content(format!("You are media management assistant called CineMatic, enthusiastic, knowledgeable and passionate about all things media\nYou always run lookups to ensure correct id, do not rely on chat history, if the data you have received does not contain what you need you reply with the truthful answer of unknown, responses should all be on one line (with comma separation) and compact language, use emojis to express emotion to the user. The current date is {date}, the current time is {time}"))
-            .build()
-            .unwrap(),
-    ];
-    // Add message history minus the most recent line
-    let mut just_history = message_history_text[..message_history_text.len() - 1].to_string();
-    // If it contains a \n then it has history
-    if just_history.contains('\n') {
-        // Remove the last line
-        just_history =
-            just_history[..just_history.rfind('\n').unwrap_or(just_history.len())].to_string();
-        chat_query.push(
-            ChatCompletionRequestMessageArgs::default()
-                .role(Role::System)
-                .content(format!(
-                    "Message history:\n{}",
-                    just_history
-                        .replace("💬 ", "User: ")
-                        .replace("☑️ ", "CineMatic: ")
-                ))
-                .build()
-                .unwrap(),
-        );
-    }
-    // Add users message
-    chat_query.push(
-        ChatCompletionRequestMessageArgs::default()
-            .role(Role::User)
-            .content(users_text)
-            .build()
-            .unwrap(),
-    );
+    let mut chat_query: Vec<ChatCompletionRequestMessage> = chat_query;
 
     // Rerun the chat completition until either no function calls left, or max iterations reached
     let mut extra_history_text: String = String::new();
@@ -278,7 +227,7 @@ pub async fn run_chat_completition(
             .max_tokens(512u16)
             .model("gpt-4-0613")
             .messages(chat_query.clone())
-            .functions(get_functions())
+            .functions(get_chat_completions())
             .function_call("auto")
             .build()
             .unwrap();
@@ -378,20 +327,64 @@ pub async fn process_chat(
     // Go through each line of message_history_text, if it starts with 💬 add it to user_text_total
     let mut user_text_total = String::new();
     for line in message_history_text.lines() {
-        if line.starts_with("💬 ") {
-            user_text_total.push_str(line.replace("💬 ", "").as_str());
+        if line.starts_with(USER_EMOJI) {
+            user_text_total.push_str(line.replace(USER_EMOJI, "").as_str());
         }
     }
     // Add the users latest message
     user_text_total.push_str(&users_text);
+
+    // Get current date and time in DD/MM/YYYY and HH:MM:SS format
+    let date = Local::now().format("%d/%m/%Y").to_string();
+    let time = Local::now().format("%H:%M").to_string();
+
+    let mut chat_query: Vec<ChatCompletionRequestMessage> = vec![
+        ChatCompletionRequestMessageArgs::default()
+            .role(Role::System)
+            .content(format!("You are media management assistant called CineMatic, enthusiastic, knowledgeable and passionate about all things media\nYou always run lookups to ensure correct id, do not rely on chat history, if the data you have received does not contain what you need you reply with the truthful answer of unknown, responses should all be on one line (with comma separation) and compact language, use emojis to express emotion to the user. The current date is {date}, the current time is {time}"))
+            .build()
+            .unwrap(),
+    ];
+    // Add message history minus the most recent line
+    let mut just_history = if message_history_text.is_empty() {
+        String::new()
+    } else {
+        message_history_text[..message_history_text.len() - 1].to_string()
+    };
+    // If it contains a \n then it has history
+    if just_history.contains('\n') {
+        // Remove the last line
+        just_history =
+            just_history[..just_history.rfind('\n').unwrap_or(just_history.len())].to_string();
+        chat_query.push(
+            ChatCompletionRequestMessageArgs::default()
+                .role(Role::System)
+                .content(format!(
+                    "Message history:\n{}",
+                    just_history
+                        .replace(USER_EMOJI, "User: ")
+                        .replace(BOT_EMOJI, "CineMatic: ")
+                ))
+                .build()
+                .unwrap(),
+        );
+    }
+    // Add users message
+    chat_query.push(
+        ChatCompletionRequestMessageArgs::default()
+            .role(Role::User)
+            .content(users_text.clone())
+            .build()
+            .unwrap(),
+    );
 
     // Run chat completion
     run_chat_completition(
         ctx,
         bot_message,
         message_history_text,
-        users_text,
         user_name,
+        chat_query,
     )
     .await;
 }

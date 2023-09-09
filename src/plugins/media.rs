@@ -1,10 +1,11 @@
 use crate::apis;
 use anyhow::anyhow;
+use futures::Future;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::{collections::HashMap, pin::Pin};
 
 #[derive(Debug, Clone)]
-pub enum Format {
+enum Format {
     Movie,
     Series,
 }
@@ -17,8 +18,81 @@ impl std::fmt::Display for Format {
     }
 }
 
+pub fn lookup_args(
+    args: HashMap<String, String>,
+) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>> {
+    let format = match args.get("format").unwrap().as_str() {
+        "series" => Format::Series,
+        _ => Format::Movie,
+    };
+    let searches = args.get("searches").unwrap().to_string();
+    let query = args.get("query").unwrap().to_string();
+    let fut = async move { lookup(format, searches, query).await };
+    drop(args);
+    Box::pin(fut)
+}
+
+pub fn add_args(
+    args: HashMap<String, String>,
+) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>> {
+    let format = match args.get("format").unwrap().as_str() {
+        "series" => Format::Series,
+        _ => Format::Movie,
+    };
+    let db_id = args.get("db_id").unwrap().to_string();
+    let quality = args.get("quality").unwrap().to_string();
+    let fut = async move { add(format, db_id, args.get("user_name").unwrap(), quality).await };
+    Box::pin(fut)
+}
+
+pub fn setres_args(
+    args: HashMap<String, String>,
+) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>> {
+    let format = match args.get("format").unwrap().as_str() {
+        "series" => Format::Series,
+        _ => Format::Movie,
+    };
+    let id = args.get("id").unwrap().to_string();
+    let quality = args.get("quality").unwrap().to_string();
+    let fut = async move { setres(format, id, quality).await };
+    drop(args);
+    Box::pin(fut)
+}
+
+pub fn remove_args(
+    args: HashMap<String, String>,
+) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>> {
+    let format = match args.get("format").unwrap().as_str() {
+        "series" => Format::Series,
+        _ => Format::Movie,
+    };
+    let id = args.get("id").unwrap().to_string();
+    let fut = async move { remove(format, id, args.get("user_name").unwrap()).await };
+    Box::pin(fut)
+}
+
+pub fn wanted_args(
+    args: HashMap<String, String>,
+) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>> {
+    let format = match args.get("format").unwrap().as_str() {
+        "series" => Format::Series,
+        _ => Format::Movie,
+    };
+    let user = args.get("user").unwrap().to_string();
+    let fut = async move { wanted(format, user, args.get("user_name").unwrap()).await };
+    Box::pin(fut)
+}
+
+pub fn downloads_args(
+    args: HashMap<String, String>,
+) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>> {
+    let fut = async move { check_downloads().await };
+    drop(args);
+    Box::pin(fut)
+}
+
 /// Perform a lookup of movies with ai processing to answer a prompt
-pub async fn lookup(media_type: Format, searches: String, query: String) -> anyhow::Result<String> {
+async fn lookup(media_type: Format, searches: String, query: String) -> anyhow::Result<String> {
     let terms: Vec<String> = searches.split('|').map(|s| s.trim().to_string()).collect();
 
     // Get list of searches per term
@@ -60,7 +134,7 @@ pub async fn lookup(media_type: Format, searches: String, query: String) -> anyh
 }
 
 /// Add media to the server
-pub async fn add(
+async fn add(
     media_type: Format,
     db_id: String,
     user_name: &str,
@@ -181,7 +255,7 @@ pub async fn add(
 }
 
 /// Updates the resolution of a media item.
-pub async fn setres(media_type: Format, id: String, quality: String) -> anyhow::Result<String> {
+async fn setres(media_type: Format, id: String, quality: String) -> anyhow::Result<String> {
     // Determine the lookup path and service based on the media type
     let (lookup_path, service) = match media_type {
         Format::Movie => (format!("/api/v3/movie/{id}"), apis::ArrService::Radarr),
@@ -236,7 +310,7 @@ pub async fn setres(media_type: Format, id: String, quality: String) -> anyhow::
 }
 
 /// Push data for media
-pub async fn push(media_type: Format, media_json: Value) {
+async fn push(media_type: Format, media_json: Value) {
     let media_id = media_json["id"].as_u64().unwrap();
     // Media to json
     let media = serde_json::to_string(&media_json).unwrap();
@@ -266,7 +340,7 @@ pub async fn push(media_type: Format, media_json: Value) {
 }
 
 /// Remove wanted tag from media for user
-pub async fn remove(media_type: Format, id: String, user_name: &str) -> anyhow::Result<String> {
+async fn remove(media_type: Format, id: String, user_name: &str) -> anyhow::Result<String> {
     // Determine the lookup path and service based on the media type
     let (lookup_path, service) = match media_type {
         Format::Movie => (format!("/api/v3/movie/{id}"), apis::ArrService::Radarr),
@@ -315,7 +389,7 @@ pub async fn remove(media_type: Format, id: String, user_name: &str) -> anyhow::
 }
 
 /// Check for media the user wants
-pub async fn wanted(media_type: Format, query: String, user_name: &str) -> anyhow::Result<String> {
+async fn wanted(media_type: Format, query: String, user_name: &str) -> anyhow::Result<String> {
     if query.to_lowercase() == "none" {
         let none_media = get_media_with_no_user_tags(media_type.clone())
             .await
@@ -340,7 +414,7 @@ pub async fn wanted(media_type: Format, query: String, user_name: &str) -> anyho
 }
 
 /// Get status of media that is currently downloading or awaiting import
-pub async fn check_downloads() -> anyhow::Result<String> {
+async fn check_downloads() -> anyhow::Result<String> {
     // Fetch the current downloads queue from Radarr
     let radarr_downloads_value = apis::arr_request(
         reqwest::Method::GET,
