@@ -576,7 +576,7 @@ async fn get_user_tag_id(media_type: Format, user_name: &str) -> Option<u64> {
 
 /// Sync tags on sonarr or radarr for added-username
 async fn sync_user_tags(media_type: Format) {
-    let contents = std::fs::read_to_string("memories.toml");
+    let contents = std::fs::read_to_string("names.toml");
     if contents.is_err() {
         return;
     }

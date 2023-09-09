@@ -1,7 +1,6 @@
 use crate::apis;
 use crate::chatbot;
 use anyhow::Context;
-use rand::seq::SliceRandom;
 use regex::Regex;
 use serenity::{
     async_trait,
@@ -117,9 +116,9 @@ async fn process_and_reply(
     );
 
     // Choose a random reply message
-    let reply_text = REPLY_MESSAGES
-        .choose(&mut rand::thread_rng())
-        .context("Failed to choose reply message")?;
+    #[allow(clippy::cast_possible_truncation)]
+    let index = (msg.id.0 as usize) % REPLY_MESSAGES.len();
+    let reply_text = REPLY_MESSAGES[index];
 
     // Send a reply message to the user
     let bot_message = msg
