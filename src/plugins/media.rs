@@ -118,7 +118,7 @@ async fn lookup(media_type: Format, searches: String, query: String) -> anyhow::
     for search in arr_searches.iter().flatten() {
         let search_results = search.clone();
         // Trim the searches so each only contains 5 results max and output plain english
-        media_strings.push(media_to_plain_english(&media_type, search_results, 5).await);
+        media_strings.push(media_to_plain_english(&media_type, search_results, 5).await?);
     }
 
     // Search with gpt through series and movies to get ones of relevance
@@ -134,6 +134,7 @@ async fn lookup(media_type: Format, searches: String, query: String) -> anyhow::
 }
 
 /// Add media to the server
+#[allow(clippy::too_many_lines)]
 async fn add(
     media_type: Format,
     db_id: String,
@@ -155,9 +156,22 @@ async fn add(
     // Perform the API request
     let mut media = apis::arr_request(reqwest::Method::GET, service.clone(), lookup_path, None)
         .await
-        .map_err(|e| anyhow!("Couldn't add {}, {}", media_type, e))?;
+        .map_err(|e| anyhow!("Failed media lookup {}, {}", media_type, e))?;
     // If the media type is a series, get the first result
     if matches!(media_type, Format::Series) {
+        media = media[0].clone();
+    };
+    // If media type is a movie, perform another lookup with the movies title to gather extra data
+    if matches!(media_type, Format::Movie) {
+        let title = media["title"].as_str().unwrap().replace(' ', "%20");
+        media = apis::arr_request(
+            reqwest::Method::GET,
+            service.clone(),
+            format!("/api/v3/movie/lookup?term={title}"),
+            None,
+        )
+        .await
+        .map_err(|e| anyhow!("Failed movie lookup {}, {}", media_type, e))?;
         media = media[0].clone();
     };
 
@@ -265,7 +279,7 @@ async fn setres(media_type: Format, id: String, quality: String) -> anyhow::Resu
     // Perform the API request
     let mut media = apis::arr_request(reqwest::Method::GET, service.clone(), lookup_path, None)
         .await
-        .map_err(|e| anyhow!("Couldn't change resolution of {}, {}", media_type, e))?;
+        .map_err(|e| anyhow!("Failed media lookup {}, {}", media_type, e))?;
     // If the media type is a series, get the first result
     if matches!(media_type, Format::Series) {
         media = media[0].clone();
@@ -351,7 +365,6 @@ async fn remove(media_type: Format, id: String, user_name: &str) -> anyhow::Resu
     let mut media = apis::arr_request(reqwest::Method::GET, service.clone(), lookup_path, None)
         .await
         .map_err(|e| anyhow!("Couldn't remove {}, {}", media_type, e))?;
-
     // If the media type is a series, get the first result
     if matches!(media_type, Format::Series) {
         media = media[0].clone();
@@ -676,7 +689,11 @@ fn sizeof_fmt(mut num: f64) -> String {
 
 /// Convert json of movies/series data to plain english
 #[allow(clippy::too_many_lines)]
-async fn media_to_plain_english(media_type: &Format, response: Value, num: usize) -> String {
+async fn media_to_plain_english(
+    media_type: &Format,
+    response: Value,
+    num: usize,
+) -> anyhow::Result<String> {
     let quality_profiles: HashMap<u64, &str> = [
         (2, "SD"),
         (3, "720p"),
@@ -688,6 +705,18 @@ async fn media_to_plain_english(media_type: &Format, response: Value, num: usize
     .iter()
     .copied()
     .collect();
+
+    // Get all current tags
+    let all_tags = apis::arr_request(
+        reqwest::Method::GET,
+        match media_type {
+            Format::Movie => apis::ArrService::Radarr,
+            Format::Series => apis::ArrService::Sonarr,
+        },
+        "/api/v3/tag".to_string(),
+        None,
+    )
+    .await?;
 
     let mut results = Vec::new();
     if let Value::Array(media_items) = response {
@@ -718,40 +747,27 @@ async fn media_to_plain_english(media_type: &Format, response: Value, num: usize
             }
             // Get tags added-users
             if let Value::Array(tags) = &item["tags"] {
-                // Get all current tags
-                let all_tags = apis::arr_request(
-                    reqwest::Method::GET,
-                    match media_type {
-                        Format::Movie => apis::ArrService::Radarr,
-                        Format::Series => apis::ArrService::Sonarr,
-                    },
-                    "/api/v3/tag".to_string(),
-                    None,
-                )
-                .await;
-                if let Ok(all_tags) = all_tags {
-                    // Get tags added-users
-                    let mut tag_labels = String::new();
-                    for tag in tags {
-                        if let Value::Number(tag_id) = tag {
-                            for all_tag in all_tags.as_array().unwrap() {
-                                if let (Some(id), Some(label)) =
-                                    (all_tag.get("id"), all_tag.get("label"))
-                                {
-                                    if id.as_u64() == tag_id.as_u64() {
-                                        if !tag_labels.is_empty() {
-                                            tag_labels.push_str(", ");
-                                        }
-                                        tag_labels.push_str(label.as_str().unwrap());
-                                        break;
+                // Get tags added-users
+                let mut tag_labels = String::new();
+                for tag in tags {
+                    if let Value::Number(tag_id) = tag {
+                        for all_tag in all_tags.as_array().unwrap() {
+                            if let (Some(id), Some(label)) =
+                                (all_tag.get("id"), all_tag.get("label"))
+                            {
+                                if id.as_u64() == tag_id.as_u64() {
+                                    if !tag_labels.is_empty() {
+                                        tag_labels.push_str(", ");
                                     }
+                                    tag_labels.push_str(label.as_str().unwrap());
+                                    break;
                                 }
                             }
                         }
                     }
-                    if !tag_labels.is_empty() {
-                        result.push(format!("added by {tag_labels}"));
-                    }
+                }
+                if !tag_labels.is_empty() {
+                    result.push(format!("added by {tag_labels}"));
                 }
             }
             match media_type {
@@ -795,5 +811,5 @@ async fn media_to_plain_english(media_type: &Format, response: Value, num: usize
             }
         }
     }
-    results.join("\n")
+    Ok(results.join("\n"))
 }

@@ -142,7 +142,7 @@ fn get_functions() -> Vec<Func> {
         ),
         Func::new(
             "media_add",
-            "Adds media to the server, perform a lookup first to get the tmdbId/tvdbId",
+            "Adds media to the server and mark it as wanted by user, if media is already on server it just marks as wanted, perform a lookup first to get the tmdbId/tvdbId",
             vec![
                 format_param.clone(),
                 Param::new("db_id", "The tmdbId/tvdbId of the media item"),
@@ -152,13 +152,13 @@ fn get_functions() -> Vec<Func> {
         ),
         Func::new(
             "media_setres",
-            "Change the targeted resolution of a piece of media on the server, perform a lookup first to get the id",
+            "Change the targeted resolution of a piece of media on the server, perform a lookup first to get the id on server (not the tmdbId/tvdbId)",
             vec![format_param.clone(), id_param.clone(), quality_param],
             plugins::media::setres_args,
         ),
         Func::new(
             "media_remove",
-            "Removes media from users requests, media items remain on the server if another user has requested also, perform a lookup first to get the id",
+            "Removes media from users requests, media items remain on the server if another user has requested also, perform a lookup first to get the id on server (not the tmdbId/tvdbId)",
             vec![format_param.clone(), id_param],
             plugins::media::remove_args,
         ),
@@ -199,6 +199,7 @@ async fn run_function(
             for (key, value) in args.as_object().unwrap() {
                 args_map.insert(key.clone(), value.as_str().unwrap().to_string());
             }
+            println!("Running function {name} with args {args_map:?}");
             return (func.call_func)(args_map).await;
         }
     }
