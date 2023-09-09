@@ -1,5 +1,3 @@
-use std::{collections::HashMap, pin::Pin};
-
 use crate::plugins;
 use anyhow::anyhow;
 use async_openai::types::{
@@ -10,6 +8,7 @@ use chrono::Local;
 use futures::Future;
 use serde_json::json;
 use serenity::{model::channel::Message as DiscordMessage, prelude::Context as DiscordContext};
+use std::{collections::HashMap, pin::Pin};
 
 const USER_EMOJI: &str = "💬 ";
 const BOT_EMOJI: &str = "☑️ ";

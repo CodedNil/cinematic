@@ -1,15 +1,13 @@
+use crate::apis;
+use crate::chatbot;
 use anyhow::Context;
+use rand::seq::SliceRandom;
+use regex::Regex;
 use serenity::{
     async_trait,
     model::{channel::Message as DiscordMessage, gateway::Ready, user::CurrentUser},
     prelude::{Context as DiscordContext, EventHandler},
 };
-
-use rand::seq::SliceRandom;
-use regex::Regex;
-
-use crate::apis;
-use crate::chatbot;
 
 /// How long a thread of replies can be
 const MAX_TICK_COUNT: usize = 3;

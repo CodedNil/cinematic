@@ -1,5 +1,3 @@
-use std::{collections::HashMap, pin::Pin};
-
 use crate::apis;
 use anyhow::anyhow;
 use futures::Future;
@@ -8,6 +6,8 @@ use reqwest;
 use scraper::{Html, Selector};
 use serde::Serialize;
 use serde_json;
+use std::{collections::HashMap, pin::Pin};
+
 #[derive(Serialize, Debug)]
 struct SearchResultBrave {
     title: String,
