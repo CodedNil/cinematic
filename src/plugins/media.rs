@@ -437,7 +437,7 @@ async fn check_downloads() -> anyhow::Result<String> {
         // Ensure that the returned JSON is an array
         let downloads = value["records"]
             .as_array()
-            .ok_or(anyhow!("Expected an array of downloads"))?;
+            .ok_or_else(|| anyhow!("Expected an array of downloads"))?;
 
         // Extract relevant information about the downloads
         let mut downloads_info = Vec::new();

@@ -23,7 +23,7 @@ struct Func {
 
 impl Func {
     fn new(name: &str, description: &str, parameters: Vec<Param>, call_func: FuncType) -> Self {
-        Func {
+        Self {
             name: name.to_owned(),
             description: description.to_owned(),
             parameters,
@@ -44,7 +44,7 @@ struct Param {
 }
 impl Param {
     fn new(name: &str, description: &str) -> Self {
-        Param {
+        Self {
             name: name.to_owned(),
             description: description.to_owned(),
             required: true,
@@ -153,20 +153,20 @@ fn get_functions() -> Vec<Func> {
         Func::new(
             "media_setres",
             "Change the targeted resolution of a piece of media on the server, perform a lookup first to get the id",
-            vec![format_param.clone(), id_param.clone(), quality_param.clone()],
+            vec![format_param.clone(), id_param.clone(), quality_param],
             plugins::media::setres_args,
         ),
         Func::new(
             "media_remove",
             "Removes media from users requests, media items remain on the server if another user has requested also, perform a lookup first to get the id",
-            vec![format_param.clone(), id_param.clone()],
+            vec![format_param.clone(), id_param],
             plugins::media::remove_args,
         ),
         Func::new(
             "media_wanted",
             "Returns a list of series that user or noone has requested ... Aim for the most condensed list while retaining clarity knowing that the user can always request more specific detail.",
             vec![
-                format_param.clone(),
+                format_param,
                 Param::new(
                     "user",
                     "Self for the user that spoke, none to get a list of movies or series that noone has requested",
@@ -323,16 +323,6 @@ pub async fn process_chat(
     bot_message: DiscordMessage,  // The message reply to the user
     message_history_text: String, // The message history text, each starts with emoji identifying role
 ) {
-    // Go through each line of message_history_text, if it starts with 💬 add it to user_text_total
-    let mut user_text_total = String::new();
-    for line in message_history_text.lines() {
-        if line.starts_with(USER_EMOJI) {
-            user_text_total.push_str(line.replace(USER_EMOJI, "").as_str());
-        }
-    }
-    // Add the users latest message
-    user_text_total.push_str(&users_text);
-
     // Get current date and time in DD/MM/YYYY and HH:MM:SS format
     let date = Local::now().format("%d/%m/%Y").to_string();
     let time = Local::now().format("%H:%M").to_string();

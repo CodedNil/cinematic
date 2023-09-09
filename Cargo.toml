@@ -4,8 +4,10 @@ version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0"
 description = "CineMatic is a powerful and user-friendly Discord bot that allows users to manage their media collections. With its advanced features, Cinematic can help you make changes to your media server, view available content, and even answer questions related to your media collection."
+authors = ["Dan Lock <codenil@proton.me>"]
 repository = "https://github.com/CodedNil/CineMatic"
 keywords = ["discord", "media-server"]
+categories = ["discord-bot", "media-library", "utilities"]
 
 [dependencies]
 dotenv = "0.15"
@@ -15,7 +17,7 @@ chrono = "0.4"
 futures = "0.3"
 rand = "0.8"
 regex = "1.8"
-reqwest = { version = "0.11", features = ["cookies"] }
+reqwest = "0.11"
 scraper = "0.17"
 serde = "1.0"
 serde_json = "1.0"

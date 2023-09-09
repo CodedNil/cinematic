@@ -95,13 +95,13 @@ async fn brave(query: String) -> anyhow::Result<SearchBrave> {
                 .trim()
                 .to_string();
 
-            let (published, snippet) = match raw_snippet.find(" - ") {
-                Some(index) => {
+            let (published, snippet) = raw_snippet.find(" - ").map_or_else(
+                || (String::new(), raw_snippet.to_string()),
+                |index| {
                     let (p, s) = raw_snippet.split_at(index);
                     (p.trim().to_string(), s[2..].trim().to_string())
-                }
-                None => (String::new(), raw_snippet.to_string()),
-            };
+                },
+            );
 
             let rating = element
                 .select(&Selector::parse(".ml-10").unwrap())

@@ -5,7 +5,6 @@ use async_openai::Client as OpenAiClient;
 use reqwest::{Client, Method};
 use std::env;
 use std::fs::File;
-use std::io::prelude::*;
 
 #[derive(Clone)]
 pub enum ArrService {
@@ -37,9 +36,7 @@ pub fn get_env_variable(key: &str) -> String {
 pub async fn user_name_from_id(user_id: &String, user_name_dirty: &str) -> Option<String> {
     // Create names.toml file if doesnt exist
     if !std::path::Path::new("names.toml").exists() {
-        let mut file = File::create("names.toml").expect("Failed to create names file");
-        file.write_all("".as_bytes())
-            .expect("Failed to write to names file");
+        File::create("names.toml").expect("Failed to create names file");
     }
     let contents = std::fs::read_to_string("names.toml");
     if contents.is_err() {
@@ -146,7 +143,7 @@ pub async fn arr_request(
     let username = get_env_variable(format!("{service_name}_AUTHUSER").as_str());
     let password = get_env_variable(format!("{service_name}_AUTHPASS").as_str());
 
-    let client = Client::builder().cookie_store(true).build()?;
+    let client = Client::builder().build()?;
     let last_sep = if url.contains('?') { "&" } else { "?" };
     let mut request = client
         .request(

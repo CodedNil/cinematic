@@ -36,11 +36,10 @@ static REPLY_MESSAGES: &[&str] = &[
 ];
 
 async fn get_bot_user(ctx: &DiscordContext) -> anyhow::Result<Option<CurrentUser>> {
-    if let Ok(user) = ctx.http.get_current_user().await {
-        Ok(Some(user))
-    } else {
-        Err(anyhow::anyhow!("Failed to get bot user"))
-    }
+    (ctx.http.get_current_user().await).map_or_else(
+        |_| Err(anyhow::anyhow!("Failed to get bot user")),
+        |user| Ok(Some(user)),
+    )
 }
 
 async fn should_process_message(
@@ -67,7 +66,7 @@ async fn should_process_message(
 
 fn clean_user_text(msg: &DiscordMessage, is_debug: bool) -> String {
     let regex = Regex::new(r"(?m)<[@#]&?\d+>").unwrap();
-    let mut user_text = msg.content.replace('\n', " ").to_string();
+    let mut user_text = msg.content.replace('\n', " ");
     user_text = regex.replace_all(&user_text, "").trim().to_string();
     if is_debug {
         user_text = user_text[1..].trim().to_string();
