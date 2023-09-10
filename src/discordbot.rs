@@ -1,5 +1,4 @@
-use crate::apis;
-use crate::plugins;
+use crate::{apis, plugins};
 use anyhow::{anyhow, Context};
 use async_openai::types::{
     ChatCompletionFunctions, ChatCompletionFunctionsArgs, ChatCompletionRequestMessage,
@@ -19,34 +18,12 @@ use std::{collections::HashMap, pin::Pin};
 /// How long a thread of replies can be
 const MAX_THREAD_LIMIT: usize = 3;
 
-/// A list of messages to reply with while waiting for AI
-static REPLY_MESSAGES: &[&str] = &[
-    "Hey there! Super excited to process your message, give me just a moment... 🎬",
-    "Oh, a message! Can't wait to dive into this one - I'm on it... 🎥",
-    "Hey, awesome! A new message to explore! Let me work my media magic... 📺",
-    "Woo-hoo! A fresh message to check out! Let me put my CineMatic touch on it... 🍿",
-    "Yay, another message! Time to unleash my media passion, be right back... 📼",
-    "Hey, a message! I'm so excited to process this one, just a moment... 🎞",
-    "Aha! A message has arrived! Let me roll out the red carpet for it... 🎞️",
-    "Ooh, a new message to dissect! Allow me to unleash my inner film buff... 🎦",
-    "Lights, camera, action! Time to process your message with a cinematic twist... 📽️",
-    "Hooray, a message to dig into! Let's make this a blockbuster experience... 🌟",
-    "Greetings! Your message has caught my eye, let me give it the star treatment... 🎟️",
-    "Popcorn's ready! Let me take a closer look at your message like a true film fanatic... 🍿",
-    "Woohoo! A message to analyze! Let me work on it while humming my favorite movie tunes... 🎶",
-    "A new message to dive into! Let me put on my director's hat and get to work... 🎩",
-    "And... action! Time to process your message with my media expertise... 📹",
-    "Sending your message to the cutting room! Let me work on it like a skilled film editor... 🎞️",
-    "A message has entered the scene! Let me put my media prowess to work on it... 🎭",
-    "Your message is the star of the show! Let me process it with the passion of a true cinephile... 🌟",
-    "Curtain up! Your message takes center stage, and I'm ready to give it a standing ovation... 🎦",
-];
-
 async fn get_bot_user(ctx: &DiscordContext) -> anyhow::Result<Option<CurrentUser>> {
-    (ctx.http.get_current_user().await).map_or_else(
-        |_| Err(anyhow::anyhow!("Failed to get bot user")),
-        |user| Ok(Some(user)),
-    )
+    ctx.http
+        .get_current_user()
+        .await
+        .map(Some)
+        .context("Failed to get bot user")
 }
 
 async fn should_process_message(
@@ -54,21 +31,11 @@ async fn should_process_message(
     is_debug: bool,
     ctx: &DiscordContext,
 ) -> anyhow::Result<bool> {
-    if is_debug && !msg.content.starts_with('!') {
-        return Ok(false);
-    }
-    if !is_debug && msg.content.starts_with('!') {
-        return Ok(false);
-    }
+    let debug_valid = is_debug && msg.content.starts_with('!');
+    let release_valid =
+        !is_debug && !msg.content.starts_with('!') && msg.mentions_me(&ctx.http).await?;
 
-    if !is_debug {
-        let mentions_me = msg.mentions_me(&ctx.http).await?;
-        if !mentions_me {
-            return Ok(false);
-        }
-    }
-
-    Ok(true)
+    Ok(debug_valid || release_valid)
 }
 
 fn clean_user_text(msg: &DiscordMessage, is_debug: bool) -> String {
@@ -86,7 +53,6 @@ async fn get_message_history(
     bot_user: &CurrentUser,
     ctx: &DiscordContext,
 ) -> anyhow::Result<Option<String>> {
-    let mut message_history_text = String::new();
     if let Some(message_reference) = &msg.message_reference {
         let replied_to = msg
             .channel_id
@@ -100,10 +66,13 @@ async fn get_message_history(
         {
             return Ok(None);
         }
-        message_history_text = replied_to.content.replace("✅ ", "☑️ ").trim().to_string() + "\n";
-    }
 
-    Ok(Some(message_history_text))
+        Ok(Some(
+            replied_to.content.replace("✅ ", "☑️ ").trim().to_string() + "\n",
+        ))
+    } else {
+        Ok(None)
+    }
 }
 
 async fn process_and_reply(
@@ -124,9 +93,13 @@ async fn process_and_reply(
     );
 
     // Choose a random reply message
+    let reply_messages: Vec<String> = serde_json::from_str(
+        &std::fs::read_to_string("reply_messages.json").context("Unable to read file")?,
+    )
+    .context("Unable to parse JSON data")?;
     #[allow(clippy::cast_possible_truncation)]
-    let index = (msg.id.0 as usize) % REPLY_MESSAGES.len();
-    let reply_text = REPLY_MESSAGES[index];
+    let index = (msg.id.0 as usize) % reply_messages.len();
+    let reply_text = &reply_messages[index];
 
     // Send a reply message to the user
     let bot_message = msg
@@ -151,165 +124,41 @@ async fn process_and_reply(
     Ok(())
 }
 
-pub struct Handler;
+pub struct DiscordHandler;
 
 #[async_trait]
-impl EventHandler for Handler {
+impl EventHandler for DiscordHandler {
     async fn ready(&self, _: DiscordContext, ready: Ready) {
         println!("{} is connected!", ready.user.name);
     }
 
     async fn message(&self, ctx: DiscordContext, msg: DiscordMessage) {
-        if msg.author.bot {
+        if msg.author.bot
+            || get_bot_user(&ctx).await.unwrap().is_none()
+            || !should_process_message(&msg, cfg!(debug_assertions), &ctx)
+                .await
+                .unwrap()
+        {
             return;
         }
 
-        let is_debug = cfg!(debug_assertions);
-        let Some(bot_user) = get_bot_user(&ctx).await.unwrap() else {
-            return;
-        };
-
-        if !should_process_message(&msg, is_debug, &ctx).await.unwrap() {
-            return;
-        }
-
-        let user_text = clean_user_text(&msg, is_debug);
+        let user_text = clean_user_text(&msg, cfg!(debug_assertions));
         if user_text.is_empty() {
             return;
         }
 
-        let Some(message_history_text) = get_message_history(&msg, &bot_user, &ctx).await.unwrap()
-        else {
-            return;
-        };
-
-        process_and_reply(user_text, message_history_text, &msg, &ctx)
-            .await
-            .expect("Failed to process and reply");
+        process_and_reply(
+            user_text,
+            get_message_history(&msg, &get_bot_user(&ctx).await.unwrap().unwrap(), &ctx)
+                .await
+                .unwrap()
+                .unwrap(),
+            &msg,
+            &ctx,
+        )
+        .await
+        .expect("Failed to process and reply");
     }
-}
-
-#[derive(Debug)]
-pub struct Func {
-    name: String,
-    description: String,
-    parameters: Vec<Param>,
-    call_func: FuncType,
-}
-
-impl Func {
-    pub fn new(name: &str, description: &str, parameters: Vec<Param>, call_func: FuncType) -> Self {
-        Self {
-            name: name.to_owned(),
-            description: description.to_owned(),
-            parameters,
-            call_func,
-        }
-    }
-}
-
-type FuncType =
-    fn(&HashMap<String, String>) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>>;
-
-#[derive(Debug, Clone)]
-pub struct Param {
-    name: String,
-    description: String,
-    required: bool,
-    enum_values: Option<Vec<String>>,
-}
-impl Param {
-    pub fn new(name: &str, description: &str) -> Self {
-        Self {
-            name: name.to_owned(),
-            description: description.to_owned(),
-            required: true,
-            enum_values: None,
-        }
-    }
-
-    pub fn with_enum_values(mut self, enum_values: &[&str]) -> Self {
-        self.enum_values = Some(enum_values.iter().map(|&val| val.to_owned()).collect());
-        self
-    }
-
-    fn to_json(&self) -> serde_json::Value {
-        let mut map = serde_json::Map::new();
-        map.insert("description".to_owned(), json!(self.description));
-        map.insert("type".to_owned(), json!("string"));
-        if let Some(ref enum_values) = self.enum_values {
-            map.insert("enum".to_owned(), json!(enum_values));
-        }
-        json!(map)
-    }
-}
-
-/// Get available functions data
-fn get_functions() -> Vec<Func> {
-    let mut functions = Vec::new();
-    functions.extend(plugins::websearch::get_functions());
-    functions.extend(plugins::media::get_functions());
-
-    functions
-}
-
-/// Run function
-async fn run_function(
-    name: String,
-    args: serde_json::Value,
-    user_name: &str,
-) -> anyhow::Result<String> {
-    let functions = get_functions();
-
-    for func in functions {
-        if func.name == name {
-            let mut args_map = HashMap::new();
-            args_map.insert("user_name".to_string(), user_name.to_string());
-            for (key, value) in args.as_object().unwrap() {
-                args_map.insert(key.clone(), value.as_str().unwrap().to_string());
-            }
-            println!("Running function {name} with args {args_map:?}");
-            let response = (func.call_func)(&args_map).await;
-            println!("Function {name} response: {response:?}",);
-            return response;
-        }
-    }
-
-    Err(anyhow!("Function not found"))
-}
-
-/// Wraps any async function into a pinned Boxed Future with the correct return type
-pub fn box_future<F>(fut: F) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>>
-where
-    F: Future<Output = anyhow::Result<String>> + Send + 'static,
-{
-    Box::pin(fut)
-}
-
-fn func_to_chat_completion(func: &Func) -> ChatCompletionFunctions {
-    let properties: serde_json::Map<String, _> = func
-        .parameters
-        .iter()
-        .map(|param| (param.name.clone(), param.to_json()))
-        .collect();
-
-    let required: Vec<_> = func
-        .parameters
-        .iter()
-        .filter(|&param| param.required)
-        .map(|param| param.name.clone())
-        .collect();
-
-    ChatCompletionFunctionsArgs::default()
-        .name(&func.name)
-        .description(&func.description)
-        .parameters(json!({
-            "type": "object",
-            "properties": properties,
-            "required": required,
-        }))
-        .build()
-        .unwrap()
 }
 
 /// Process the chat message from the user
@@ -469,4 +318,127 @@ async fn process_chat(
         })
         .await
         .unwrap();
+}
+
+#[derive(Debug)]
+pub struct Func {
+    name: String,
+    description: String,
+    parameters: Vec<Param>,
+    call_func: FuncType,
+}
+
+impl Func {
+    pub fn new(name: &str, description: &str, parameters: Vec<Param>, call_func: FuncType) -> Self {
+        Self {
+            name: name.to_owned(),
+            description: description.to_owned(),
+            parameters,
+            call_func,
+        }
+    }
+}
+
+type FuncType =
+    fn(&HashMap<String, String>) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>>;
+
+#[derive(Debug, Clone)]
+pub struct Param {
+    name: String,
+    description: String,
+    required: bool,
+    enum_values: Option<Vec<String>>,
+}
+impl Param {
+    pub fn new(name: &str, description: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            description: description.to_owned(),
+            required: true,
+            enum_values: None,
+        }
+    }
+
+    pub fn with_enum_values(mut self, enum_values: &[&str]) -> Self {
+        self.enum_values = Some(enum_values.iter().map(|&val| val.to_owned()).collect());
+        self
+    }
+
+    fn to_json(&self) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
+        map.insert("description".to_owned(), json!(self.description));
+        map.insert("type".to_owned(), json!("string"));
+        if let Some(ref enum_values) = self.enum_values {
+            map.insert("enum".to_owned(), json!(enum_values));
+        }
+        json!(map)
+    }
+}
+
+/// Get available functions data
+fn get_functions() -> Vec<Func> {
+    let mut functions = Vec::new();
+    functions.extend(plugins::websearch::get_functions());
+    functions.extend(plugins::media::get_functions());
+
+    functions
+}
+
+/// Run function
+async fn run_function(
+    name: String,
+    args: serde_json::Value,
+    user_name: &str,
+) -> anyhow::Result<String> {
+    let functions = get_functions();
+
+    for func in functions {
+        if func.name == name {
+            let mut args_map = HashMap::new();
+            args_map.insert("user_name".to_string(), user_name.to_string());
+            for (key, value) in args.as_object().unwrap() {
+                args_map.insert(key.clone(), value.as_str().unwrap().to_string());
+            }
+            println!("Running function {name} with args {args_map:?}");
+            let response = (func.call_func)(&args_map).await;
+            println!("Function {name} response: {response:?}",);
+            return response;
+        }
+    }
+
+    Err(anyhow!("Function not found"))
+}
+
+/// Wraps any async function into a pinned Boxed Future with the correct return type
+pub fn box_future<F>(fut: F) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>>
+where
+    F: Future<Output = anyhow::Result<String>> + Send + 'static,
+{
+    Box::pin(fut)
+}
+
+fn func_to_chat_completion(func: &Func) -> ChatCompletionFunctions {
+    let properties: serde_json::Map<String, _> = func
+        .parameters
+        .iter()
+        .map(|param| (param.name.clone(), param.to_json()))
+        .collect();
+
+    let required: Vec<_> = func
+        .parameters
+        .iter()
+        .filter(|&param| param.required)
+        .map(|param| param.name.clone())
+        .collect();
+
+    ChatCompletionFunctionsArgs::default()
+        .name(&func.name)
+        .description(&func.description)
+        .parameters(json!({
+            "type": "object",
+            "properties": properties,
+            "required": required,
+        }))
+        .build()
+        .unwrap()
 }

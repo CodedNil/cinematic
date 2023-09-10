@@ -15,7 +15,7 @@ async fn main() {
 
     // Create a new instance of the Client, logging in as a bot
     let mut client: DiscordClient = DiscordClient::builder(&discord_token, intents)
-        .event_handler(discordbot::Handler)
+        .event_handler(discordbot::DiscordHandler)
         .await
         .expect("Err creating client");
 
