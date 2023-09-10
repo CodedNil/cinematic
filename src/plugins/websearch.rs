@@ -23,11 +23,10 @@ struct SearchBrave {
 }
 
 pub fn ai_search_args(
-    args: HashMap<String, String>,
+    args: &HashMap<String, String>,
 ) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>> {
     let query = args.get("query").unwrap().to_string();
     let fut = async move { ai_search(query).await };
-    drop(args);
     Box::pin(fut)
 }
 

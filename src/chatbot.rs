@@ -33,7 +33,7 @@ impl Func {
 }
 
 type FuncType =
-    fn(HashMap<String, String>) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>>;
+    fn(&HashMap<String, String>) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>>;
 
 #[derive(Debug, Clone)]
 struct Param {
@@ -66,39 +66,6 @@ impl Param {
         }
         json!(map)
     }
-}
-
-fn func_to_chat_completion(func: &Func) -> ChatCompletionFunctions {
-    let properties: serde_json::Map<String, _> = func
-        .parameters
-        .iter()
-        .map(|param| (param.name.clone(), param.to_json()))
-        .collect();
-
-    let required: Vec<_> = func
-        .parameters
-        .iter()
-        .filter(|&param| param.required)
-        .map(|param| param.name.clone())
-        .collect();
-
-    ChatCompletionFunctionsArgs::default()
-        .name(&func.name)
-        .description(&func.description)
-        .parameters(json!({
-            "type": "object",
-            "properties": properties,
-            "required": required,
-        }))
-        .build()
-        .unwrap()
-}
-
-fn get_chat_completions() -> Vec<ChatCompletionFunctions> {
-    get_functions()
-        .iter()
-        .map(func_to_chat_completion)
-        .collect()
 }
 
 /// Get available functions data
@@ -216,13 +183,46 @@ async fn run_function(
                 args_map.insert(key.clone(), value.as_str().unwrap().to_string());
             }
             println!("Running function {name} with args {args_map:?}");
-            let response = (func.call_func)(args_map).await;
+            let response = (func.call_func)(&args_map).await;
             println!("Function {name} response: {response:?}",);
             return response;
         }
     }
 
     Err(anyhow!("Function not found"))
+}
+
+fn func_to_chat_completion(func: &Func) -> ChatCompletionFunctions {
+    let properties: serde_json::Map<String, _> = func
+        .parameters
+        .iter()
+        .map(|param| (param.name.clone(), param.to_json()))
+        .collect();
+
+    let required: Vec<_> = func
+        .parameters
+        .iter()
+        .filter(|&param| param.required)
+        .map(|param| param.name.clone())
+        .collect();
+
+    ChatCompletionFunctionsArgs::default()
+        .name(&func.name)
+        .description(&func.description)
+        .parameters(json!({
+            "type": "object",
+            "properties": properties,
+            "required": required,
+        }))
+        .build()
+        .unwrap()
+}
+
+fn get_chat_completions() -> Vec<ChatCompletionFunctions> {
+    get_functions()
+        .iter()
+        .map(func_to_chat_completion)
+        .collect()
 }
 
 /// Run the chat completition

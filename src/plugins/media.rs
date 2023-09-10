@@ -18,91 +18,98 @@ impl std::fmt::Display for Format {
     }
 }
 
-pub fn query_server_args(
-    args: HashMap<String, String>,
-) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>> {
-    let format = match args.get("format").unwrap().as_str() {
+// This function gets the "format" from the args and returns the corresponding Format enum
+fn get_format(args: &HashMap<String, String>) -> Format {
+    match args.get("format").unwrap().as_str() {
         "series" => Format::Series,
         _ => Format::Movie,
-    };
+    }
+}
+
+// This function wraps any async function into a pinned Boxed Future with the correct return type
+fn box_future<F>(fut: F) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>>
+where
+    F: Future<Output = anyhow::Result<String>> + Send + 'static,
+{
+    Box::pin(fut)
+}
+
+pub fn query_server_args(
+    args: &HashMap<String, String>,
+) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>> {
+    let format = get_format(args);
     let query = args.get("query").unwrap().to_string();
     let details = args.get("details").unwrap().to_string();
-    let fut = async move { query_server(format, query, details).await };
-    drop(args);
-    Box::pin(fut)
+    box_future(async move { query_server(format, query, details).await })
 }
 
 pub fn lookup_args(
-    args: HashMap<String, String>,
+    args: &HashMap<String, String>,
 ) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>> {
-    let format = match args.get("format").unwrap().as_str() {
-        "series" => Format::Series,
-        _ => Format::Movie,
-    };
+    let format = get_format(args);
     let searches = args.get("searches").unwrap().to_string();
     let query = args.get("query").unwrap().to_string();
-    let fut = async move { lookup(format, searches, query).await };
-    drop(args);
-    Box::pin(fut)
+    box_future(async move { lookup(format, searches, query).await })
 }
 
 pub fn add_args(
-    args: HashMap<String, String>,
+    args: &HashMap<String, String>,
 ) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>> {
-    let format = match args.get("format").unwrap().as_str() {
-        "series" => Format::Series,
-        _ => Format::Movie,
-    };
+    let format = get_format(args);
     let db_id = args.get("db_id").unwrap().to_string();
     let quality = args.get("quality").unwrap().to_string();
-    let fut = async move { add(format, db_id, args.get("user_name").unwrap(), quality).await };
-    Box::pin(fut)
+    let user_name = args.get("user_name").unwrap().to_string();
+    box_future(async move { add(format, db_id, &user_name, quality).await })
 }
 
 pub fn setres_args(
-    args: HashMap<String, String>,
+    args: &HashMap<String, String>,
 ) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>> {
-    let format = match args.get("format").unwrap().as_str() {
-        "series" => Format::Series,
-        _ => Format::Movie,
-    };
+    let format = get_format(args);
     let id = args.get("id").unwrap().to_string();
     let quality = args.get("quality").unwrap().to_string();
-    let fut = async move { setres(format, id, quality).await };
-    drop(args);
-    Box::pin(fut)
+    box_future(async move { setres(format, id, quality).await })
 }
 
 pub fn remove_args(
-    args: HashMap<String, String>,
+    args: &HashMap<String, String>,
 ) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>> {
-    let format = match args.get("format").unwrap().as_str() {
-        "series" => Format::Series,
-        _ => Format::Movie,
-    };
+    let format = get_format(args);
     let id = args.get("id").unwrap().to_string();
-    let fut = async move { remove(format, id, args.get("user_name").unwrap()).await };
-    Box::pin(fut)
+    let user_name = args.get("user_name").unwrap().to_string();
+    box_future(async move { remove(format, id, &user_name).await })
 }
 
 pub fn wanted_args(
-    args: HashMap<String, String>,
+    args: &HashMap<String, String>,
 ) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>> {
-    let format = match args.get("format").unwrap().as_str() {
-        "series" => Format::Series,
-        _ => Format::Movie,
-    };
+    let format = get_format(args);
     let user = args.get("user").unwrap().to_string();
-    let fut = async move { wanted(format, user, args.get("user_name").unwrap()).await };
-    Box::pin(fut)
+    let user_name = args.get("user_name").unwrap().to_string();
+    box_future(async move { wanted(format, user, &user_name).await })
 }
 
 pub fn downloads_args(
-    args: HashMap<String, String>,
+    _args: &HashMap<String, String>,
 ) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>> {
-    let fut = async move { check_downloads().await };
-    drop(args);
-    Box::pin(fut)
+    box_future(async move { check_downloads().await })
+}
+
+/// Query with GPT to get relevant responses.
+async fn query_with_gpt(media_string: String, query: String) -> anyhow::Result<String> {
+    let response = apis::gpt_info_query(
+        "gpt-3.5-turbo-16k".to_string(),
+        media_string,
+        format!("Using very concise language and in a single line response (comma separated if outputting a list)\nBased on the given information and only this information give your best answer to, {query}"),
+    )
+    .await
+    .unwrap_or_default();
+
+    if response.is_empty() {
+        return Err(anyhow!("Couldn't find any results for {}", query));
+    }
+
+    Ok(response)
 }
 
 /// Perform a query against the servers media with ai processing to answer a prompt
@@ -131,19 +138,7 @@ async fn query_server(
     let media_string = media_to_plain_english(&media_type, all_media, 0, output_details).await?;
 
     // Search with gpt through series and movies to get ones of relevance
-    let response = apis::gpt_info_query(
-        "gpt-3.5-turbo-16k".to_string(),
-        media_string,
-        format!("Using very concise language and in a single line response (comma separated if outputting a list)\nBased on the given information and only this information give your best answer to, {query}"),
-    )
-    .await
-    .unwrap_or_default();
-
-    if response.is_empty() {
-        return Err(anyhow!("Couldn't find any results for {query}"));
-    }
-
-    Ok(response)
+    query_with_gpt(media_string, query).await
 }
 
 /// Perform a lookup of movies with ai processing to answer a prompt
@@ -152,7 +147,7 @@ async fn lookup(media_type: Format, searches: String, query: String) -> anyhow::
 
     // Get list of searches per term
     let mut arr_searches = vec![];
-    let arr_service = match media_type {
+    let service = match media_type {
         Format::Movie => apis::ArrService::Radarr,
         Format::Series => apis::ArrService::Sonarr,
     };
@@ -160,28 +155,27 @@ async fn lookup(media_type: Format, searches: String, query: String) -> anyhow::
         let cleaned_term = term.replace(' ', "%20");
         arr_searches.push(apis::arr_request(
             reqwest::Method::GET,
-            arr_service.clone(),
+            service.clone(),
             format!("/api/v3/{media_type}/lookup?term={cleaned_term}"),
             None,
         ));
     }
+
     // Wait for all searches to finish parallel
     let arr_searches: Vec<Result<Value, anyhow::Error>> =
         futures::future::join_all(arr_searches).await;
     // Gather human readable data for each item
     let mut media_strings: Vec<String> = Vec::new();
     for search in arr_searches.iter().flatten() {
-        let search_results = search.clone();
-        // Trim the searches so each only contains 5 results max and output plain english
         media_strings.push(
             media_to_plain_english(
                 &media_type,
-                search_results,
+                search.clone(),
                 10,
                 OutputDetails {
                     availability: true,
                     quality: true,
-                    tags: true,
+                    tags: false,
                     db_id: true,
                     file_details: true,
                     genres: false,
@@ -192,23 +186,10 @@ async fn lookup(media_type: Format, searches: String, query: String) -> anyhow::
     }
 
     // Search with gpt through series and movies to get ones of relevance
-    let response = apis::gpt_info_query(
-        "gpt-3.5-turbo".to_string(),
-        media_strings.join("\n"),
-        format!("Using very concise language and in a single line response (comma separated if outputting a list)\nBased on the given information and only this information give your best answer to, {query}"),
-    )
-    .await
-    .unwrap_or_default();
-
-    if response.is_empty() {
-        return Err(anyhow!("Couldn't find any results for {query}"));
-    }
-
-    Ok(response)
+    query_with_gpt(media_strings.join("\n"), query).await
 }
 
 /// Add media to the server
-#[allow(clippy::too_many_lines)]
 async fn add(
     media_type: Format,
     db_id: String,
@@ -250,12 +231,11 @@ async fn add(
     };
 
     let quality_profile_id = get_quality_profile_id(&quality);
-
     let tag_id = get_user_tag_id(media_type.clone(), user_name).await?;
 
     // Check if media is already on the server
-    if let Value::Number(id) = &media["id"] {
-        if id.as_u64().unwrap() != 0 {
+    if let Some(id) = &media["id"].as_u64() {
+        if *id != 0 {
             // If already has the tag that user wants it, return message
             if media["tags"].as_array().unwrap().contains(&tag_id.into()) {
                 return Err(anyhow!(
@@ -268,7 +248,7 @@ async fn add(
                 .as_array_mut()
                 .unwrap()
                 .push(tag_id.into());
-            push(media_type.clone(), new_media).await;
+            push(media_type.clone(), new_media).await?;
             return Err(anyhow!(
                 "Couldn't add {media_type} with id {id}, it is already on the server, noted that the user wants it"
             ));
@@ -294,35 +274,16 @@ async fn add(
 
     // Media to json
     let media = serde_json::to_string(&media).unwrap();
+
     // Add the media to sonarr or radarr
-    let response = match media_type {
-        Format::Movie => {
-            apis::arr_request(
-                reqwest::Method::POST,
-                apis::ArrService::Radarr,
-                "/api/v3/movie".to_string(),
-                Some(media),
-            )
-            .await
-        }
-        Format::Series => {
-            apis::arr_request(
-                reqwest::Method::POST,
-                apis::ArrService::Sonarr,
-                "/api/v3/series".to_string(),
-                Some(media),
-            )
-            .await
-        }
-    };
-    // Return error if response is an error
-    if response.is_err() {
-        return Err(anyhow!(
-            "Couldn't add {media_type}, {error}",
-            media_type = media_type,
-            error = response.err().unwrap()
-        ));
+    let endpoint = match media_type {
+        Format::Movie => "/api/v3/movie",
+        Format::Series => "/api/v3/series",
     }
+    .to_string();
+    apis::arr_request(reqwest::Method::POST, service, endpoint, Some(media))
+        .await
+        .map_err(|e| anyhow!("Failed to add media: {}", e))?;
 
     Ok(format!(
         "Added {media_type} with tmdbId/tvdbId {db_id} in {quality}"
@@ -346,24 +307,19 @@ async fn setres(media_type: Format, id: String, quality: String) -> anyhow::Resu
         media = media[0].clone();
     };
 
-    let quality_profile_id = get_quality_profile_id(&quality);
-
     // Check if the media item exists on the server
-    if let Value::Number(id) = &media["id"] {
-        if id.as_u64().unwrap() == 0 {
+    match media["id"].as_u64() {
+        Some(0) | None => {
             return Err(anyhow!(
-                "Couldn't change resolution, {media_type} with id {id} isnt on the server"
-            ));
+                "Couldn't change resolution, {media_type} with id {id} isn't on the server"
+            ))
         }
-    } else {
-        return Err(anyhow!(
-            "Couldn't change resolution, {media_type} with id {id} isnt on the server"
-        ));
+        _ => {}
     }
 
     // Update the media item's quality profile id
-    media["qualityProfileId"] = quality_profile_id.into();
-    push(media_type.clone(), media.clone()).await;
+    media["qualityProfileId"] = get_quality_profile_id(&quality).into();
+    push(media_type.clone(), media).await?;
 
     // Return a success message
     Ok(format!(
@@ -372,33 +328,30 @@ async fn setres(media_type: Format, id: String, quality: String) -> anyhow::Resu
 }
 
 /// Push data for media
-async fn push(media_type: Format, media_json: Value) {
-    let media_id = media_json["id"].as_u64().unwrap();
+async fn push(media_type: Format, media_json: Value) -> anyhow::Result<()> {
+    let media_id = media_json["id"]
+        .as_u64()
+        .ok_or_else(|| anyhow!("Invalid media ID"))?;
+
     // Media to json
-    let media = serde_json::to_string(&media_json).unwrap();
+    let media = serde_json::to_string(&media_json)?;
 
     // Push the media to sonarr or radarr
-    match media_type {
-        Format::Movie => {
-            apis::arr_request(
-                reqwest::Method::PUT,
-                apis::ArrService::Radarr,
-                format!("/api/v3/movie/{media_id}"),
-                Some(media),
-            )
-            .await
-        }
-        Format::Series => {
-            apis::arr_request(
-                reqwest::Method::PUT,
-                apis::ArrService::Sonarr,
-                format!("/api/v3/series/{media_id}"),
-                Some(media),
-            )
-            .await
-        }
-    }
-    .expect("Failed to push media");
+    let (path, service) = match media_type {
+        Format::Movie => (
+            format!("/api/v3/movie/{media_id}"),
+            apis::ArrService::Radarr,
+        ),
+        Format::Series => (
+            format!("/api/v3/series/{media_id}"),
+            apis::ArrService::Sonarr,
+        ),
+    };
+
+    apis::arr_request(reqwest::Method::PUT, service, path, Some(media))
+        .await
+        .map_err(|e| anyhow!("Failed to push media: {}", e))
+        .map(|_| ())
 }
 
 /// Remove wanted tag from media for user
@@ -434,7 +387,7 @@ async fn remove(media_type: Format, id: String, user_name: &str) -> anyhow::Resu
                     .cloned()
                     .collect::<Vec<Value>>();
                 new_media["tags"] = new_tags.into();
-                push(media_type.clone(), new_media).await;
+                push(media_type.clone(), new_media).await?;
                 return Ok(format!(
                     "{media_type} with id {id} has been unrequested for user"
                 ));
