@@ -320,7 +320,6 @@ async fn process_chat(
         .unwrap();
 }
 
-#[derive(Debug)]
 pub struct Func {
     name: String,
     description: String,
