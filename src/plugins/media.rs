@@ -120,9 +120,9 @@ async fn query_server(
     let details: Vec<String> = details.split(',').map(|s| s.trim().to_string()).collect();
 
     let output_details = OutputDetails {
-        availability: details.contains(&"availability".to_string()),
+        availability: false,
         quality: details.contains(&"quality".to_string()),
-        tags: details.contains(&"tags".to_string()),
+        tags: details.contains(&"added_by".to_string()),
         db_id: details.contains(&"db_id".to_string()),
         file_details: details.contains(&"file_details".to_string()),
         genres: details.contains(&"genres".to_string()),
@@ -134,10 +134,14 @@ async fn query_server(
     let response = apis::gpt_info_query(
         "gpt-3.5-turbo-16k".to_string(),
         media_string,
-        format!("Using very concise language\nBased on the given information and only this information give your best answer to, {query}"),
+        format!("Using very concise language and in a single line response (comma separated if outputting a list)\nBased on the given information and only this information give your best answer to, {query}"),
     )
     .await
     .unwrap_or_default();
+
+    if response.is_empty() {
+        return Err(anyhow!("Couldn't find any results for {query}"));
+    }
 
     Ok(response)
 }
@@ -191,10 +195,14 @@ async fn lookup(media_type: Format, searches: String, query: String) -> anyhow::
     let response = apis::gpt_info_query(
         "gpt-3.5-turbo".to_string(),
         media_strings.join("\n"),
-        format!("Using very concise language\nBased on the given information and only this information give your best answer to, {query}"),
+        format!("Using very concise language and in a single line response (comma separated if outputting a list)\nBased on the given information and only this information give your best answer to, {query}"),
     )
     .await
     .unwrap_or_default();
+
+    if response.is_empty() {
+        return Err(anyhow!("Couldn't find any results for {query}"));
+    }
 
     Ok(response)
 }
@@ -243,7 +251,7 @@ async fn add(
 
     let quality_profile_id = get_quality_profile_id(&quality);
 
-    let tag_id = get_user_tag_id(media_type.clone(), user_name).await;
+    let tag_id = get_user_tag_id(media_type.clone(), user_name).await?;
 
     // Check if media is already on the server
     if let Value::Number(id) = &media["id"] {
@@ -410,7 +418,7 @@ async fn remove(media_type: Format, id: String, user_name: &str) -> anyhow::Resu
         media = media[0].clone();
     };
 
-    let tag_id: Option<u64> = get_user_tag_id(media_type.clone(), user_name).await;
+    let tag_id = get_user_tag_id(media_type.clone(), user_name).await?;
 
     // Check if media is already on the server
     if let Value::Number(id) = &media["id"] {
@@ -445,60 +453,67 @@ async fn remove(media_type: Format, id: String, user_name: &str) -> anyhow::Resu
 async fn wanted(media_type: Format, query: String, user_name: &str) -> anyhow::Result<String> {
     if query.to_lowercase() == "none" {
         let none_media = get_media_with_no_user_tags(media_type.clone())
-            .await
-            .join(", ");
-        if none_media.is_empty() {
-            return Ok(format!("{media_type} with no users requests: none"));
-        }
-        return Ok(format!("{media_type} with no users requests: {none_media}"));
+            .await?
+            .join(";");
+
+        let result_msg = if none_media.is_empty() {
+            format!("{media_type} with no users requests: none")
+        } else {
+            format!("{media_type} with no users requests: {none_media}")
+        };
+
+        return Ok(result_msg);
     }
-    let user: String = if query == "self" {
+
+    let user = if query == "self" {
         user_name.to_string()
     } else {
         query.to_lowercase()
     };
+
     let user_media = get_media_with_user_tag(media_type.clone(), &user)
-        .await
-        .join(", ");
-    if user_media.is_empty() {
-        return Ok(format!("{media_type} requested by {user}: none"));
-    }
-    Ok(format!("{media_type} requested by {user}: {user_media}"))
+        .await?
+        .join(";");
+
+    let result_msg = if user_media.is_empty() {
+        format!("{media_type} requested by {user}: none")
+    } else {
+        format!("{media_type} requested by {user}: {user_media}")
+    };
+
+    Ok(result_msg)
 }
 
 /// Get status of media that is currently downloading or awaiting import
 async fn check_downloads() -> anyhow::Result<String> {
-    // Fetch the current downloads queue from Radarr
-    let radarr_downloads_value = apis::arr_request(
-        reqwest::Method::GET,
-        apis::ArrService::Radarr,
-        "/api/v3/queue".to_string(),
-        None,
-    )
-    .await?;
+    let mut output_parts = Vec::new();
 
-    // Fetch the current downloads queue from Sonarr
-    let sonarr_downloads_value = apis::arr_request(
-        reqwest::Method::GET,
-        apis::ArrService::Sonarr,
-        "/api/v3/queue".to_string(),
-        None,
-    )
-    .await?;
+    for (service, service_name) in &[
+        (apis::ArrService::Radarr, "Movies"),
+        (apis::ArrService::Sonarr, "Series"),
+    ] {
+        let download_value = apis::arr_request(
+            reqwest::Method::GET,
+            service.clone(),
+            "/api/v3/queue".to_string(),
+            None,
+        )
+        .await?;
 
-    let extract_downloads = |value: &serde_json::Value| -> anyhow::Result<Vec<String>> {
-        // Ensure that the returned JSON is an array
-        let downloads = value["records"]
+        // Extract downloads
+        let downloads = download_value["records"]
             .as_array()
             .ok_or_else(|| anyhow!("Expected an array of downloads"))?;
 
-        // Extract relevant information about the downloads
         let mut downloads_info = Vec::new();
         let mut seen_titles = std::collections::HashSet::new();
+
         for download in downloads {
             let title = download["title"].as_str().unwrap_or("Unknown Title");
+
+            // Skip already processed titles
             if seen_titles.contains(title) {
-                continue; // Skip this title since it's already processed
+                continue;
             }
             seen_titles.insert(title);
 
@@ -523,87 +538,85 @@ async fn check_downloads() -> anyhow::Result<String> {
                 "{title} (Status: {status} Time Left: {time_left}{formatted_message})"
             ));
         }
-        Ok(downloads_info)
-    };
 
-    let radarr_downloads = extract_downloads(&radarr_downloads_value)?;
-    let sonarr_downloads = extract_downloads(&sonarr_downloads_value)?;
-
-    // Format the output based on the presence of downloads
-    let mut output_parts = Vec::new();
-    if !sonarr_downloads.is_empty() {
-        output_parts.push(format!("Series Downloads: {}", sonarr_downloads.join("; ")));
-    }
-    if !radarr_downloads.is_empty() {
-        output_parts.push(format!("Movies downloads: {}", radarr_downloads.join("; ")));
+        if !downloads_info.is_empty() {
+            output_parts.push(format!(
+                "{} Downloads: {}",
+                service_name,
+                downloads_info.join("; ")
+            ));
+        }
     }
 
     // Return a human-readable summary
+    if output_parts.is_empty() {
+        return Ok("No downloads in progress".to_string());
+    }
     Ok(output_parts.join(" | "))
 }
 
 /// Get user tag id
-async fn get_user_tag_id(media_type: Format, user_name: &str) -> Option<u64> {
+async fn get_user_tag_id(media_type: Format, user_name: &str) -> anyhow::Result<Option<u64>> {
     // Sync then get all current tags
     let service = match media_type {
         Format::Movie => apis::ArrService::Radarr,
         Format::Series => apis::ArrService::Sonarr,
     };
-    sync_user_tags(media_type.clone()).await;
-    let all_tags = apis::arr_request(
-        reqwest::Method::GET,
-        service,
-        "/api/v3/tag".to_string(),
-        None,
-    )
-    .await;
-    // Return error if all_tags is an error
-    if all_tags.is_err() {
-        return None;
-    }
-    let all_tags = all_tags.unwrap();
-    // Get id for users tag [{id: 1, label: "added-username"}]
-    if let Value::Array(tags) = &all_tags {
-        for tag in tags {
-            // print label and added-user_name
-            if tag["label"].as_str() == Some(&format!("added-{user_name}")) {
-                return tag["id"].as_u64();
-            }
-        }
-    }
-    None
-}
+    sync_user_tags(media_type.clone()).await?;
 
-/// Sync tags on sonarr or radarr for added-username
-async fn sync_user_tags(media_type: Format) {
-    let contents = std::fs::read_to_string("names.toml");
-    if contents.is_err() {
-        return;
-    }
-    let parsed_toml: toml::Value = contents.unwrap().parse().unwrap();
-    let mut user_names = vec![];
-    // Get all users, then the name from each
-    for (_id, user) in parsed_toml.as_table().unwrap() {
-        if !user.as_table().unwrap().contains_key("name") {
-            continue;
-        }
-        user_names.push(user.get("name").unwrap().as_str().unwrap().to_lowercase());
-    }
-
-    let service = match media_type {
-        Format::Movie => apis::ArrService::Radarr,
-        Format::Series => apis::ArrService::Sonarr,
-    };
-
-    // Get all current tags
+    // Fetch all tags from the service
     let all_tags = apis::arr_request(
         reqwest::Method::GET,
         service.clone(),
         "/api/v3/tag".to_string(),
         None,
     )
-    .await
-    .expect("Failed to get tags");
+    .await?;
+
+    // Get id for users tag [{id: 1, label: "added-username"}]
+    if let Value::Array(tags) = &all_tags {
+        for tag in tags {
+            // print label and added-user_name
+            if tag["label"].as_str() == Some(&format!("added-{user_name}")) {
+                return Ok(tag["id"].as_u64());
+            }
+        }
+    }
+    Err(anyhow!("No tag id found for user: '{}'", user_name))
+}
+
+/// Sync tags on sonarr or radarr for added-username
+async fn sync_user_tags(media_type: Format) -> anyhow::Result<()> {
+    // Read and parse the TOML file
+    let parsed_toml: toml::Value = std::fs::read_to_string("names.toml")
+        .map_err(|_| anyhow!("Failed to read names.toml"))?
+        .parse()?;
+
+    // Extract user names
+    let user_names: Vec<String> = parsed_toml
+        .as_table()
+        .unwrap()
+        .values()
+        .filter_map(|user| user.get("name"))
+        .filter_map(toml::Value::as_str)
+        .map(str::to_lowercase)
+        .collect();
+
+    // Determine the service based on media type
+    let service = match media_type {
+        Format::Movie => apis::ArrService::Radarr,
+        Format::Series => apis::ArrService::Sonarr,
+    };
+
+    // Fetch all tags from the service
+    let all_tags = apis::arr_request(
+        reqwest::Method::GET,
+        service.clone(),
+        "/api/v3/tag".to_string(),
+        None,
+    )
+    .await?;
+
     // Get tags with prefix
     let mut current_tags = Vec::new();
     for tag in all_tags.as_array().unwrap() {
@@ -613,66 +626,58 @@ async fn sync_user_tags(media_type: Format) {
         }
     }
 
-    // Add missing tags
-    let mut tags_to_add = Vec::new();
+    // Create missing tags
     for user_name in &user_names {
         let tag = format!("added-{user_name}");
         if !current_tags.contains(&tag) {
-            tags_to_add.push(tag);
+            let body = serde_json::json!({ "label": tag }).to_string();
+            apis::arr_request(
+                reqwest::Method::POST,
+                service.clone(),
+                "/api/v3/tag".to_string(),
+                Some(body),
+            )
+            .await?;
         }
-    }
-    for tag in tags_to_add {
-        let body = serde_json::json!({ "label": tag }).to_string();
-        apis::arr_request(
-            reqwest::Method::POST,
-            service.clone(),
-            "/api/v3/tag".to_string(),
-            Some(body),
-        )
-        .await
-        .expect("Failed to add tag");
     }
 
     // Remove extra tags
-    let mut tags_to_remove = Vec::new();
     for tag in &current_tags {
-        let tag_without_prefix = tag.strip_prefix("added-").unwrap();
-        if !user_names.contains(&tag_without_prefix.to_string()) {
-            tags_to_remove.push(tag.clone());
+        let tag_without_prefix = tag.strip_prefix("added-").unwrap().to_string();
+        if !user_names.contains(&tag_without_prefix) {
+            let tag_id = all_tags
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|t| t["label"].as_str().unwrap() == *tag)
+                .unwrap()["id"]
+                .as_i64()
+                .unwrap();
+            apis::arr_request(
+                reqwest::Method::DELETE,
+                service.clone(),
+                format!("/api/v3/tag/{tag_id}"),
+                None,
+            )
+            .await?;
         }
     }
-    for tag in tags_to_remove {
-        let tag_id = all_tags
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|t| t["label"].as_str().unwrap() == tag)
-            .unwrap()["id"]
-            .as_i64()
-            .unwrap();
-        apis::arr_request(
-            reqwest::Method::DELETE,
-            service.clone(),
-            format!("/api/v3/tag/{tag_id}"),
-            None,
-        )
-        .await
-        .expect("Failed to remove tag");
-    }
+
+    Ok(())
 }
 
 /// Get media that has no user tags
-async fn get_media_with_no_user_tags(media_type: Format) -> Vec<String> {
+async fn get_media_with_no_user_tags(media_type: Format) -> anyhow::Result<Vec<String>> {
     let (url, service) = match media_type {
-        Format::Movie => ("/api/v3/movie".to_string(), apis::ArrService::Radarr),
-        Format::Series => ("/api/v3/series".to_string(), apis::ArrService::Sonarr),
+        Format::Movie => ("/api/v3/movie", apis::ArrService::Radarr),
+        Format::Series => ("/api/v3/series", apis::ArrService::Sonarr),
     };
-    let all_media = apis::arr_request(reqwest::Method::GET, service, url, None).await;
-    // Return error if media is an error
-    if all_media.is_err() {
-        return Vec::new();
-    }
-    let all_media = all_media.unwrap();
+
+    // Get all media
+    let all_media = apis::arr_request(reqwest::Method::GET, service, url.into(), None)
+        .await
+        .map_err(|e| anyhow!("Failed to get all media due to: {}", e))?;
+
     let mut media_with_no_user_tags = Vec::new();
     for media in all_media.as_array().unwrap() {
         let tags = media["tags"].as_array().unwrap();
@@ -680,40 +685,41 @@ async fn get_media_with_no_user_tags(media_type: Format) -> Vec<String> {
             media_with_no_user_tags.push(media["title"].as_str().unwrap().to_string());
         }
     }
-    media_with_no_user_tags
+    Ok(media_with_no_user_tags)
 }
 
 /// Get media tagged for user
-async fn get_media_with_user_tag(media_type: Format, user_name: &str) -> Vec<String> {
+async fn get_media_with_user_tag(
+    media_type: Format,
+    user_name: &str,
+) -> anyhow::Result<Vec<String>> {
     let (url, service) = match media_type {
-        Format::Movie => ("/api/v3/movie".to_string(), apis::ArrService::Radarr),
-        Format::Series => ("/api/v3/series".to_string(), apis::ArrService::Sonarr),
+        Format::Movie => ("/api/v3/movie", apis::ArrService::Radarr),
+        Format::Series => ("/api/v3/series", apis::ArrService::Sonarr),
     };
+
     // Get user tag id
     println!("Getting user tag id {} {}", media_type.clone(), user_name);
-    let tag_id = get_user_tag_id(media_type.clone(), user_name).await;
-    // Get all media and return ones the user requested
-    println!("Getting all media");
-    let all_media = apis::arr_request(reqwest::Method::GET, service, url, None).await;
-    // Return error if media is an error
-    if all_media.is_err() {
-        println!(
-            "Error getting media with user tag: {}",
-            all_media.err().unwrap()
-        );
-        return Vec::new();
-    }
-    let all_media = all_media.unwrap();
+    let tag_id = get_user_tag_id(media_type.clone(), user_name)
+        .await?
+        .ok_or_else(|| anyhow!("No tag id found for user: '{}'", user_name))?;
+
+    // Get all media
+    let all_media = apis::arr_request(reqwest::Method::GET, service, url.into(), None)
+        .await
+        .map_err(|e| anyhow!("Failed to get all media due to: {}", e))?;
+
     let mut media_with_user_tag = Vec::new();
+
     for media in all_media.as_array().unwrap() {
         let tags = media["tags"].as_array().unwrap();
         for tag in tags {
-            if tag.as_u64() == tag_id {
+            if tag.as_u64() == Some(tag_id) {
                 media_with_user_tag.push(media["title"].as_str().unwrap().to_string());
             }
         }
     }
-    media_with_user_tag
+    Ok(media_with_user_tag)
 }
 
 /// Convert number size to string with units
@@ -736,7 +742,7 @@ fn get_quality_profile_id(quality: &str) -> u8 {
         ("1080p", 4),
         ("2160p", 5),
         ("720p/1080p", 6),
-        ("any quality", 7),
+        ("Any", 7),
     ]
     .iter()
     .copied()
@@ -770,7 +776,7 @@ async fn media_to_plain_english(
         (4, "1080p"),
         (5, "2160p"),
         (6, "720p/1080p"),
-        (7, "Any"),
+        (7, "any quality"),
     ]
     .iter()
     .copied()
@@ -792,132 +798,107 @@ async fn media_to_plain_english(
         .as_array()
         .ok_or_else(|| anyhow::anyhow!("Expected array from response"))?;
 
+    let num = if num == 0 { media_items.len() } else { num };
+
     let mut results = Vec::new();
-    for item in media_items {
+    for item in media_items.iter().take(num) {
         let mut result = Vec::new();
+
         // Get title and year
-        if let (Value::String(title), Value::Number(year)) = (&item["title"], &item["year"]) {
+        if let (Some(title), Some(year)) = (item["title"].as_str(), item["year"].as_u64()) {
             result.push(format!("{title} ({year})"));
         }
 
         // Get id and availability
         if output_details.availability {
-            if let Value::Number(id) = &item["id"] {
-                if id.as_u64().unwrap() == 0 {
-                    result.push("unavailable on the server".to_string());
-                } else {
-                    result.push("available on the server".to_string());
-                    result.push(format!("id on server {id}"));
-                }
+            result.push(if item["id"].as_u64().unwrap_or(0) == 0 {
+                "unavailable on the server".to_string()
             } else {
-                result.push("unavailable on the server".to_string());
-            }
+                format!(
+                    "available on the server;id on server {}",
+                    item["id"].as_u64().unwrap()
+                )
+            });
         }
 
         // Get quality
         if output_details.quality {
-            if let Value::Number(quality_profile_id) = &item["qualityProfileId"] {
-                if let Some(quality_profile_id_u64) = quality_profile_id.as_u64() {
-                    if let Some(quality) = quality_profiles.get(&quality_profile_id_u64) {
-                        result.push(format!("requested {quality}"));
-                    }
-                }
+            if let Some(quality) = item["qualityProfileId"]
+                .as_u64()
+                .and_then(|id| quality_profiles.get(&id))
+            {
+                result.push(format!("requested {quality}"));
             }
         }
 
         // Get tags added-users
         if output_details.tags {
-            if let Value::Array(tags) = &item["tags"] {
-                // Get tags added-users
-                let mut tag_labels = String::new();
-                for tag in tags {
-                    if let Value::Number(tag_id) = tag {
-                        for all_tag in all_tags.as_array().unwrap() {
-                            if let (Some(id), Some(label)) =
-                                (all_tag.get("id"), all_tag.get("label"))
-                            {
-                                if id.as_u64() == tag_id.as_u64() {
-                                    if !tag_labels.is_empty() {
-                                        tag_labels.push_str(", ");
-                                    }
-                                    tag_labels.push_str(
-                                        label.as_str().unwrap().replace("added-", "").as_str(),
-                                    );
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-                if !tag_labels.is_empty() {
-                    result.push(format!("added by {tag_labels}"));
-                }
+            let tag_labels: Vec<String> = item["tags"]
+                .as_array()
+                .unwrap_or(&Vec::new())
+                .iter()
+                .filter_map(|tag| {
+                    all_tags
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|all_tag| all_tag["id"] == *tag)
+                        .and_then(|t| t["label"].as_str())
+                })
+                .map(|s| s.replace("added-", ""))
+                .collect();
+            if !tag_labels.is_empty() {
+                result.push(format!("added by {}", tag_labels.join(",")));
             }
         }
 
         // File details
-        match media_type {
-            Format::Movie => {
-                // Get tmdbId
-                if output_details.db_id {
-                    if let Value::Number(tmdb_id) = &item["tmdbId"] {
-                        result.push(format!("tmdbId {tmdb_id}"));
-                    }
-                }
-                // Get movie file info
-                if output_details.file_details {
-                    if item["hasFile"].as_bool().unwrap_or(false) {
-                        if let Value::Number(size_on_disk) = &item["sizeOnDisk"] {
-                            result.push(format!(
-                                "file size {}",
-                                sizeof_fmt(size_on_disk.as_f64().unwrap())
-                            ));
-                        }
-                        let movie_file = &item["movieFile"];
-                        if let Value::String(resolution) = &movie_file["mediaInfo"]["resolution"] {
-                            result.push(format!("file resolution {resolution}"));
-                        }
-                        if let Value::String(edition) = &movie_file["edition"] {
-                            if !edition.is_empty() {
-                                result.push(format!("file edition {edition}"));
-                            }
-                        }
-                    } else {
-                        result.push("no file on disk".to_string());
-                    }
-                }
+        let db_string = match media_type {
+            Format::Movie => "tmdbId",
+            Format::Series => "tvdbId",
+        };
+        // Get db_id
+        if output_details.db_id {
+            if let Some(db_id) = item[db_string].as_u64() {
+                result.push(format!("{db_string} {db_id}"));
             }
-            Format::Series => {
-                // Get tvdbId
-                if output_details.db_id {
-                    if let Value::Number(tvdb_id) = &item["tvdbId"] {
-                        result.push(format!("tvdbId {tvdb_id}"));
+        }
+        // Get movie file info
+        if matches!(media_type, Format::Movie) && output_details.file_details {
+            if item["hasFile"].as_bool().unwrap_or(false) {
+                result.push(format!(
+                    "file size {}",
+                    sizeof_fmt(item["sizeOnDisk"].as_f64().unwrap())
+                ));
+                if let Some(resolution) = item["movieFile"]["mediaInfo"]["resolution"].as_str() {
+                    result.push(format!("file resolution {resolution}"));
+                }
+                if let Some(edition) = item["movieFile"]["edition"].as_str() {
+                    if !edition.is_empty() {
+                        result.push(format!("file edition {edition}"));
                     }
                 }
+            } else {
+                result.push("no file on disk".to_string());
             }
         }
 
         // Get genres
         if output_details.genres {
-            if let Value::Array(genres) = &item["genres"] {
-                let genres_string = genres
+            if let Some(genres) = item["genres"].as_array() {
+                let genres: Vec<_> = genres
                     .iter()
                     .filter_map(serde_json::Value::as_str)
-                    .collect::<Vec<&str>>()
-                    .join(",");
-                if !genres_string.is_empty() {
-                    result.push(format!("genres {genres_string}"));
+                    .collect();
+                if !genres.is_empty() {
+                    result.push(format!("genres {}", genres.join(",")));
                 }
             }
         }
 
         // Push result to results
         results.push(result.join(";"));
-
-        if num != 0 && results.len() >= num {
-            break;
-        }
     }
 
-    Ok(results.join("\n"))
+    Ok(results.join("|"))
 }

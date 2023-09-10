@@ -135,7 +135,7 @@ fn get_functions() -> Vec<Func> {
                 ),
                 Param::new(
                     "details",
-                    "Details to be included in the search, comma separated list from the following: \"availability,quality,tags,db_id,file_details,genres\"",
+                    "Details to be included in the search, comma separated list from the following (use as few as possible, 3 at most): \"quality,added_by,database_id,file_details,genres\"",
                 ),
             ],
             plugins::media::query_server_args,
@@ -243,7 +243,7 @@ pub async fn run_chat_completition(
     while counter < 10 {
         let request = CreateChatCompletionRequestArgs::default()
             .max_tokens(512u16)
-            .model("gpt-4-0613")
+            .model("gpt-4")
             .messages(chat_query.clone())
             .functions(get_chat_completions())
             .function_call("auto")
