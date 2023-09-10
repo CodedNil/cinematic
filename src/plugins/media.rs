@@ -1,6 +1,6 @@
 use crate::{
     apis,
-    chatbot::{box_future, Func, Param},
+    discordbot::{box_future, Func, Param},
 };
 use anyhow::anyhow;
 use futures::Future;
@@ -269,7 +269,7 @@ async fn add(
     // Perform the API request
     let mut media = apis::arr_request(reqwest::Method::GET, service.clone(), lookup_path, None)
         .await
-        .map_err(|e| anyhow!("Failed media lookup {}, {}", media_type, e))?;
+        .map_err(|e| anyhow!("Failed media lookup {media_type}, {e}"))?;
     // If the media type is a series, get the first result
     if matches!(media_type, Format::Series) {
         media = media[0].clone();
@@ -284,7 +284,7 @@ async fn add(
             None,
         )
         .await
-        .map_err(|e| anyhow!("Failed movie lookup {}, {}", media_type, e))?;
+        .map_err(|e| anyhow!("Failed movie lookup {media_type}, {e}"))?;
         media = media[0].clone();
     };
 
@@ -341,7 +341,7 @@ async fn add(
     .to_string();
     apis::arr_request(reqwest::Method::POST, service, endpoint, Some(media))
         .await
-        .map_err(|e| anyhow!("Failed to add media: {}", e))?;
+        .map_err(|e| anyhow!("Failed to add media: {e}"))?;
 
     Ok(format!(
         "Added {media_type} with tmdbId/tvdbId {db_id} in {quality}"
@@ -359,7 +359,7 @@ async fn setres(media_type: Format, id: String, quality: String) -> anyhow::Resu
     // Perform the API request
     let mut media = apis::arr_request(reqwest::Method::GET, service.clone(), lookup_path, None)
         .await
-        .map_err(|e| anyhow!("Failed media lookup {}, {}", media_type, e))?;
+        .map_err(|e| anyhow!("Failed media lookup {media_type}, {e}"))?;
     // If the media type is a series, get the first result
     if matches!(media_type, Format::Series) {
         media = media[0].clone();
@@ -408,7 +408,7 @@ async fn push(media_type: Format, media_json: Value) -> anyhow::Result<()> {
 
     apis::arr_request(reqwest::Method::PUT, service, path, Some(media))
         .await
-        .map_err(|e| anyhow!("Failed to push media: {}", e))
+        .map_err(|e| anyhow!("Failed to push media: {e}"))
         .map(|_| ())
 }
 
@@ -423,7 +423,7 @@ async fn remove(media_type: Format, id: String, user_name: &str) -> anyhow::Resu
     // Perform the API request
     let mut media = apis::arr_request(reqwest::Method::GET, service.clone(), lookup_path, None)
         .await
-        .map_err(|e| anyhow!("Couldn't remove {}, {}", media_type, e))?;
+        .map_err(|e| anyhow!("Couldn't remove {media_type}, {e}"))?;
     // If the media type is a series, get the first result
     if matches!(media_type, Format::Series) {
         media = media[0].clone();
@@ -600,7 +600,7 @@ async fn get_user_tag_id(media_type: Format, user_name: &str) -> anyhow::Result<
 async fn sync_user_tags(media_type: Format) -> anyhow::Result<()> {
     // Read and parse the TOML file
     let parsed_toml: toml::Value = std::fs::read_to_string("names.toml")
-        .map_err(|_| anyhow!("Failed to read names.toml"))?
+        .map_err(|e| anyhow!("Failed to read names.toml {e}"))?
         .parse()?;
 
     // Extract user names
@@ -687,7 +687,7 @@ async fn get_media_with_no_user_tags(media_type: Format) -> anyhow::Result<Vec<S
     // Get all media
     let all_media = apis::arr_request(reqwest::Method::GET, service, url.into(), None)
         .await
-        .map_err(|e| anyhow!("Failed to get all media due to: {}", e))?;
+        .map_err(|e| anyhow!("Failed to get all media {e}"))?;
 
     let mut media_with_no_user_tags = Vec::new();
     for media in all_media.as_array().unwrap() {
@@ -718,7 +718,7 @@ async fn get_media_with_user_tag(
     // Get all media
     let all_media = apis::arr_request(reqwest::Method::GET, service, url.into(), None)
         .await
-        .map_err(|e| anyhow!("Failed to get all media due to: {}", e))?;
+        .map_err(|e| anyhow!("Failed to get all media {e}"))?;
 
     let mut media_with_user_tag = Vec::new();
 

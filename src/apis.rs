@@ -1,10 +1,10 @@
+use anyhow::Context;
 use async_openai::types::{
     ChatCompletionRequestMessageArgs, CreateChatCompletionRequestArgs, Role,
 };
 use async_openai::Client as OpenAiClient;
 use reqwest::{Client, Method};
 use std::env;
-use std::fs::File;
 
 #[derive(Clone)]
 pub enum ArrService {
@@ -33,25 +33,26 @@ pub fn get_env_variable(key: &str) -> String {
 }
 
 /// Get from the names file the users name if it exists, cleaned up string
-pub async fn user_name_from_id(user_id: &String, user_name_dirty: &str) -> Option<String> {
+pub async fn user_name_from_id(user_id: &String, user_name_dirty: &str) -> anyhow::Result<String> {
     // Create names.toml file if doesnt exist
     if !std::path::Path::new("names.toml").exists() {
-        File::create("names.toml").expect("Failed to create names file");
+        std::fs::File::create("names.toml").context("Failed to create names file")?;
     }
-    let contents = std::fs::read_to_string("names.toml");
-    if contents.is_err() {
-        return None;
-    }
-    let mut parsed_toml: toml::Value = contents.unwrap().parse().unwrap();
-    // If doesnt have user, add it and write the file
+    let contents = std::fs::read_to_string("names.toml").context("Failed to read names file")?;
+    let mut parsed_toml: toml::Value = contents.parse().context("Failed to parse TOML content")?;
+
+    // If doesn't have user, add it
     if !parsed_toml.as_table().unwrap().contains_key(user_id) {
         parsed_toml.as_table_mut().unwrap().insert(
             user_id.to_string(),
             toml::Value::Table(toml::value::Table::new()),
         );
     }
-    let user = parsed_toml.get(user_id)?;
-    let user_name: String = {
+    let user = parsed_toml
+        .get(user_id)
+        .context("Failed to get user data from parsed TOML")?;
+
+    let user_name = {
         // If doesn't have the name, add it and write the file
         if user.as_table().unwrap().contains_key("name") {
             user.get("name").unwrap().as_str().unwrap().to_string()
@@ -62,23 +63,24 @@ pub async fn user_name_from_id(user_id: &String, user_name_dirty: &str) -> Optio
                 user_name_dirty.to_string(),
                 "Convert the above name to plaintext alphanumeric only, if it is already alphanumeric just return the name".to_string(),
             )
-            .await;
-            if response.is_err() {
-                return None;
-            }
+            .await.map_err(|e| anyhow::anyhow!(e)).context("Failed GPT query")?;
+
             // Write file
-            let name = response.unwrap();
+            let name = response;
             let mut user = user.as_table().unwrap().clone();
             user.insert("name".to_string(), toml::Value::String(name.clone()));
             let mut parsed_toml = parsed_toml.as_table().unwrap().clone();
             parsed_toml.insert(user_id.to_string(), toml::Value::Table(user));
-            let toml_string = toml::to_string(&parsed_toml).unwrap();
-            std::fs::write("names.toml", toml_string).unwrap();
+            let toml_string =
+                toml::to_string(&parsed_toml).context("Failed to serialize TOML data")?;
+            std::fs::write("names.toml", toml_string).context("Failed to write to names file")?;
+
             name
         }
     };
+
     // Return clean name
-    Some(user_name)
+    Ok(user_name)
 }
 
 /// Use gpt to query information

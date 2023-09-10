@@ -1,6 +1,5 @@
 use serenity::prelude::{Client as DiscordClient, GatewayIntents};
 mod apis;
-mod chatbot;
 mod discordbot;
 mod plugins;
 

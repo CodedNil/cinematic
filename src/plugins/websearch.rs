@@ -1,6 +1,6 @@
 use crate::{
     apis,
-    chatbot::{box_future, Func, Param},
+    discordbot::{box_future, Func, Param},
 };
 use anyhow::anyhow;
 use futures::Future;
