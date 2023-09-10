@@ -14,7 +14,7 @@ const USER_EMOJI: &str = "💬 ";
 const BOT_EMOJI: &str = "☑️ ";
 
 #[derive(Debug)]
-struct Func {
+pub struct Func {
     name: String,
     description: String,
     parameters: Vec<Param>,
@@ -22,7 +22,7 @@ struct Func {
 }
 
 impl Func {
-    fn new(name: &str, description: &str, parameters: Vec<Param>, call_func: FuncType) -> Self {
+    pub fn new(name: &str, description: &str, parameters: Vec<Param>, call_func: FuncType) -> Self {
         Self {
             name: name.to_owned(),
             description: description.to_owned(),
@@ -36,14 +36,14 @@ type FuncType =
     fn(&HashMap<String, String>) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>>;
 
 #[derive(Debug, Clone)]
-struct Param {
+pub struct Param {
     name: String,
     description: String,
     required: bool,
     enum_values: Option<Vec<String>>,
 }
 impl Param {
-    fn new(name: &str, description: &str) -> Self {
+    pub fn new(name: &str, description: &str) -> Self {
         Self {
             name: name.to_owned(),
             description: description.to_owned(),
@@ -52,7 +52,7 @@ impl Param {
         }
     }
 
-    fn with_enum_values(mut self, enum_values: &[&str]) -> Self {
+    pub fn with_enum_values(mut self, enum_values: &[&str]) -> Self {
         self.enum_values = Some(enum_values.iter().map(|&val| val.to_owned()).collect());
         self
     }
@@ -70,101 +70,11 @@ impl Param {
 
 /// Get available functions data
 fn get_functions() -> Vec<Func> {
-    // Common parameters for the functions
-    let format_param = Param::new("format", "The format of the media to be searched for")
-        .with_enum_values(&["movie", "series"]);
-    let quality_param = Param::new(
-        "quality",
-        "The quality to set the media to, default to 1080p if not specified",
-    )
-    .with_enum_values(&["SD", "720p", "1080p", "2160p", "720p/1080p", "Any"]);
-    let id_param = Param::new("id", "The id of the media item");
+    let mut functions = Vec::new();
+    functions.extend(plugins::websearch::get_functions());
+    functions.extend(plugins::media::get_functions());
 
-    // Create the functions
-    vec![
-        Func::new(
-            "web_search",
-            "Search web for query",
-            vec![Param::new(
-                "query",
-                "A query for information to be answered, phrased as a question",
-            )],
-            plugins::websearch::ai_search_args,
-        ),
-        Func::new(
-            "media_query",
-            "Performs a query against media on the server",
-            vec![
-                format_param.clone(),
-                Param::new(
-                    "query",
-                    "A query for information to be answered, phrased as a question, for example \"What action movies are available?\"",
-                ),
-                Param::new(
-                    "details",
-                    "Details to be included in the search, comma separated list from the following (use as few as possible, 3 at most): \"quality,added_by,database_id,file_details,genres\"",
-                ),
-            ],
-            plugins::media::query_server_args,
-        ),
-        Func::new(
-            "media_lookup",
-            "Search the media server for query information about a piece of media",
-            vec![
-                format_param.clone(),
-                Param::new(
-                    "searches",
-                    "List of movies/series to search for separated by pipe |, for example \"Game of Thrones|Watchmen|Cats\"",
-                ),
-                Param::new(
-                    "query",
-                    "A query for information to be answered, query should be phrased as a question, for example \"Available on the server?\" \"Is series Watchmen available on the server in the Ultimate Cut?\" \"What is Cats movie tmdbId/tvdbId?\" \"Who added series Game of Thrones to the server?\" \"What is series Game of Thrones tmdbId/tvdbId?\", if multiple results are returned, ask user for clarification",
-                ),
-            ],
-            plugins::media::lookup_args,
-        ),
-        Func::new(
-            "media_add",
-            "Adds media to the server and mark it as wanted by user, if media is already on server it just marks as wanted, perform a lookup first to get the tmdbId/tvdbId",
-            vec![
-                format_param.clone(),
-                Param::new("db_id", "The tmdbId/tvdbId of the media item"),
-                quality_param.clone(),
-            ],
-            plugins::media::add_args,
-        ),
-        Func::new(
-            "media_setres",
-            "Change the targeted resolution of a piece of media on the server, perform a lookup first to get the id on server (not the tmdbId/tvdbId)",
-            vec![format_param.clone(), id_param.clone(), quality_param],
-            plugins::media::setres_args,
-        ),
-        Func::new(
-            "media_remove",
-            "Removes media from users requests, media items remain on the server if another user has requested also, perform a lookup first to get the id on server (not the tmdbId/tvdbId)",
-            vec![format_param.clone(), id_param],
-            plugins::media::remove_args,
-        ),
-        Func::new(
-            "media_wanted",
-            "Returns a list of series that user or noone has requested ... Aim for the most condensed list while retaining clarity knowing that the user can always request more specific detail.",
-            vec![
-                format_param,
-                Param::new(
-                    "user",
-                    "Self for the user that spoke, none to get a list of movies or series that noone has requested",
-                )
-                .with_enum_values(&["self", "none"]),
-            ],
-            plugins::media::wanted_args,
-        ),
-        Func::new(
-            "media_downloads",
-            "Returns a list of series or movies that are downloading and their status, if user asks how long until a series is on etc",
-            Vec::new(),
-            plugins::media::downloads_args,
-        ),
-    ]
+    functions
 }
 
 /// Run function
@@ -190,6 +100,14 @@ async fn run_function(
     }
 
     Err(anyhow!("Function not found"))
+}
+
+/// Wraps any async function into a pinned Boxed Future with the correct return type
+pub fn box_future<F>(fut: F) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>>
+where
+    F: Future<Output = anyhow::Result<String>> + Send + 'static,
+{
+    Box::pin(fut)
 }
 
 fn func_to_chat_completion(func: &Func) -> ChatCompletionFunctions {

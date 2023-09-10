@@ -1,4 +1,7 @@
-use crate::apis;
+use crate::{
+    apis,
+    chatbot::{box_future, Func, Param},
+};
 use anyhow::anyhow;
 use futures::Future;
 use regex::Regex;
@@ -22,12 +25,21 @@ struct SearchBrave {
     summary: String,
 }
 
-pub fn ai_search_args(
-    args: &HashMap<String, String>,
-) -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>> {
-    let query = args.get("query").unwrap().to_string();
-    let fut = async move { ai_search(query).await };
-    Box::pin(fut)
+/// Get available functions
+pub fn get_functions() -> Vec<Func> {
+    // Create the functions
+    vec![Func::new(
+        "web_search",
+        "Search web for query",
+        vec![Param::new(
+            "query",
+            "A query for information to be answered, phrased as a question",
+        )],
+        |args: &HashMap<String, String>| -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>> {
+            let query = args.get("query").unwrap().to_string();
+            box_future(async move { ai_search(query).await })
+        },
+    )]
 }
 
 async fn brave(query: String) -> anyhow::Result<SearchBrave> {
