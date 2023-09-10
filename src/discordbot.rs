@@ -17,6 +17,45 @@ use std::{collections::HashMap, pin::Pin};
 
 /// How long a thread of replies can be
 const MAX_THREAD_LIMIT: usize = 3;
+/// How many function calls can be made
+const MAX_FUNCTION_CALLS: usize = 10;
+
+pub struct DiscordHandler;
+
+#[async_trait]
+impl EventHandler for DiscordHandler {
+    async fn ready(&self, _: DiscordContext, ready: Ready) {
+        println!("{} is connected!", ready.user.name);
+    }
+
+    async fn message(&self, ctx: DiscordContext, msg: DiscordMessage) {
+        if msg.author.bot
+            || get_bot_user(&ctx).await.unwrap().is_none()
+            || !should_process_message(&msg, cfg!(debug_assertions), &ctx)
+                .await
+                .unwrap()
+        {
+            return;
+        }
+
+        let user_text = clean_user_text(&msg, cfg!(debug_assertions));
+        if user_text.is_empty() {
+            return;
+        }
+
+        process_and_reply(
+            user_text,
+            get_message_history(&msg, &get_bot_user(&ctx).await.unwrap().unwrap(), &ctx)
+                .await
+                .unwrap()
+                .unwrap(),
+            &msg,
+            &ctx,
+        )
+        .await
+        .expect("Failed to process and reply");
+    }
+}
 
 async fn get_bot_user(ctx: &DiscordContext) -> anyhow::Result<Option<CurrentUser>> {
     ctx.http
@@ -118,129 +157,75 @@ async fn process_and_reply(
             bot_message,
             message_history_text,
         )
-        .await;
+        .await
+        .unwrap();
     });
 
     Ok(())
 }
 
-pub struct DiscordHandler;
-
-#[async_trait]
-impl EventHandler for DiscordHandler {
-    async fn ready(&self, _: DiscordContext, ready: Ready) {
-        println!("{} is connected!", ready.user.name);
-    }
-
-    async fn message(&self, ctx: DiscordContext, msg: DiscordMessage) {
-        if msg.author.bot
-            || get_bot_user(&ctx).await.unwrap().is_none()
-            || !should_process_message(&msg, cfg!(debug_assertions), &ctx)
-                .await
-                .unwrap()
-        {
-            return;
-        }
-
-        let user_text = clean_user_text(&msg, cfg!(debug_assertions));
-        if user_text.is_empty() {
-            return;
-        }
-
-        process_and_reply(
-            user_text,
-            get_message_history(&msg, &get_bot_user(&ctx).await.unwrap().unwrap(), &ctx)
-                .await
-                .unwrap()
-                .unwrap(),
-            &msg,
-            &ctx,
-        )
-        .await
-        .expect("Failed to process and reply");
-    }
-}
-
 /// Process the chat message from the user
-#[allow(clippy::too_many_lines)]
 async fn process_chat(
     user_name: String,
     users_text: String,
     ctx: DiscordContext,
     mut bot_message: DiscordMessage,
     message_history_text: String,
-) {
+) -> anyhow::Result<()> {
     // Get current date and time in DD/MM/YYYY and HH:MM:SS format
     let date = Local::now().format("%d/%m/%Y").to_string();
     let time = Local::now().format("%H:%M").to_string();
 
-    let mut chat_query: Vec<ChatCompletionRequestMessage> = vec![
-        ChatCompletionRequestMessageArgs::default()
-            .role(Role::System)
-            .content(format!("You are media management assistant called CineMatic, enthusiastic, knowledgeable and passionate about all things media\nYou always run lookups to ensure correct id, do not rely on chat history, if the data you have received does not contain what you need you reply with the truthful answer of unknown, responses should all be on one line (with comma separation) and compact language, use emojis to express emotion to the user. The current date is {date}, the current time is {time}"))
-            .build()
-            .unwrap(),
-    ];
-    // Add message history minus the most recent line
-    let mut just_history = if message_history_text.is_empty() {
-        String::new()
-    } else {
-        message_history_text[..message_history_text.len() - 1].to_string()
-    };
-    // If it contains a \n then it has history
-    if just_history.contains('\n') {
-        // Remove the last line
-        just_history =
-            just_history[..just_history.rfind('\n').unwrap_or(just_history.len())].to_string();
-        chat_query.push(
-            ChatCompletionRequestMessageArgs::default()
-                .role(Role::System)
-                .content(format!(
-                    "Message history:\n{}",
-                    just_history
-                        .replace("💬 ", "User: ")
-                        .replace("☑️ ", "CineMatic: ")
-                ))
-                .build()
-                .unwrap(),
-        );
-    }
-    // Add users message
-    chat_query.push(
-        ChatCompletionRequestMessageArgs::default()
-            .role(Role::User)
-            .content(users_text.clone())
-            .build()
-            .unwrap(),
-    );
+    let mut chat_query: Vec<ChatCompletionRequestMessage> = Vec::new();
+    chat_query.push(create_chat_completion_request_message(
+        Role::System,
+        "System Message",
+        &format!("You are media management assistant called CineMatic, enthusiastic, knowledgeable and passionate about all things media\nYou always run lookups to ensure correct id, do not rely on chat history, if the data you have received does not contain what you need you reply with the truthful answer of unknown, responses should all be on one line (with comma separation) and compact language, use emojis to express emotion to the user. The current date is {date}, the current time is {time}"),
+    ));
 
-    // The initial messages to send to the API
-    let mut chat_query: Vec<ChatCompletionRequestMessage> = chat_query;
+    // If it contains a \n then it has history
+    if let Some(last_newline) = message_history_text.rfind('\n') {
+        chat_query.push(create_chat_completion_request_message(
+            Role::System,
+            "Message History",
+            &format!(
+                "Message history:\n{}",
+                message_history_text[..last_newline]
+                    .replace("💬 ", "User: ")
+                    .replace("☑️ ", "CineMatic: ")
+            ),
+        ));
+    }
+
+    // Add users message
+    chat_query.push(create_chat_completion_request_message(
+        Role::User,
+        &user_name,
+        &users_text,
+    ));
 
     // Rerun the chat completition until either no function calls left, or max iterations reached
     let mut extra_history_text: String = String::new();
     let mut final_response: String = String::new();
-    let mut counter = 0;
-    while counter < 10 {
-        let chat_completitions: Vec<ChatCompletionFunctions> = get_functions()
+
+    for _ in 0..MAX_FUNCTION_CALLS {
+        let chat_completitions = get_functions()
             .iter()
             .map(func_to_chat_completion)
-            .collect();
-
-        let request = CreateChatCompletionRequestArgs::default()
-            .max_tokens(512u16)
-            .model("gpt-4")
-            .messages(chat_query.clone())
-            .functions(chat_completitions)
-            .function_call("auto")
-            .build()
-            .unwrap();
+            .collect::<Vec<_>>();
 
         let response_message = async_openai::Client::new()
             .chat()
-            .create(request)
-            .await
-            .unwrap()
+            .create(
+                CreateChatCompletionRequestArgs::default()
+                    .max_tokens(512u16)
+                    .model("gpt-4")
+                    .messages(chat_query.clone())
+                    .functions(chat_completitions)
+                    .function_call("auto")
+                    .build()?,
+            )
+            .await?
             .choices
             .get(0)
             .unwrap()
@@ -249,26 +234,21 @@ async fn process_chat(
 
         if let Some(function_call) = response_message.function_call {
             let function_name = function_call.name;
-            let function_args: serde_json::Value = function_call.arguments.parse().unwrap();
+            let function_args: serde_json::Value = function_call.arguments.parse()?;
 
             // Edit the discord message with function call in progress
-            let ctx_c = ctx.clone();
-            let mut bot_message_c = bot_message.clone();
-            let new_message = format!(
-                "{message_history_text}{extra_history_text}⌛ Running function {function_name} with arguments {function_args}"
-            );
-            tokio::spawn(async move {
-                bot_message_c
-                    .edit(&ctx_c.http, |msg| msg.content(new_message))
-                    .await
-                    .unwrap();
-            });
+            edit_bot_message(
+                &ctx,
+                &mut bot_message,
+                format!("{message_history_text}{extra_history_text}⌛ Running function {function_name} with arguments {function_args}"),
+            )
+            .await?;
 
+            // Get function response as string if either ok or error
             let function_response =
                 run_function(function_name.clone(), function_args, &user_name).await;
-            // Get function response as string if either ok or error
-            let function_response_message =
-                function_response.map_or_else(|error| error.to_string(), |response| response);
+            let function_response_message = function_response.unwrap_or_else(|e| e.to_string());
+
             // Truncate the function response to 100 characters
             let function_response_short = if function_response_message.len() > 150 {
                 let trimmed_message = function_response_message
@@ -284,25 +264,18 @@ async fn process_chat(
             extra_history_text.push_str(
                 format!("🎬 Ran function {function_name} {function_response_short}\n",).as_str(),
             );
-            let ctx_c = ctx.clone();
-            let mut bot_message_c = bot_message.clone();
-            let new_message = format!("{message_history_text}{extra_history_text}");
-            tokio::spawn(async move {
-                bot_message_c
-                    .edit(&ctx_c.http, |msg| msg.content(new_message))
-                    .await
-                    .unwrap();
-            });
+            edit_bot_message(
+                &ctx,
+                &mut bot_message,
+                format!("{message_history_text}{extra_history_text}"),
+            )
+            .await?;
 
-            chat_query.push(
-                ChatCompletionRequestMessageArgs::default()
-                    .role(Role::Function)
-                    .name(function_name)
-                    .content(function_response_message)
-                    .build()
-                    .unwrap(),
-            );
-            counter += 1;
+            chat_query.push(create_chat_completion_request_message(
+                Role::Function,
+                &function_name,
+                &function_response_message,
+            ));
         } else {
             final_response = response_message.content.unwrap();
             break;
@@ -310,14 +283,38 @@ async fn process_chat(
     }
 
     // Edit the discord message finalised
-    bot_message
-        .edit(&ctx.http, |msg| {
-            msg.content(format!(
-                "{message_history_text}{extra_history_text}✅ {final_response}"
-            ))
-        })
-        .await
-        .unwrap();
+    edit_bot_message(
+        &ctx,
+        &mut bot_message,
+        format!("{message_history_text}{extra_history_text}✅ {final_response}"),
+    )
+    .await?;
+
+    Ok(())
+}
+
+// Helper function for editing bot messages
+async fn edit_bot_message(
+    ctx: &DiscordContext,
+    message: &mut DiscordMessage,
+    content: String,
+) -> anyhow::Result<()> {
+    message.edit(&ctx.http, |msg| msg.content(content)).await?;
+    Ok(())
+}
+
+// Helper function for creating ChatCompletionRequestMessage
+fn create_chat_completion_request_message(
+    role: Role,
+    name: &str,
+    content: &str,
+) -> ChatCompletionRequestMessage {
+    ChatCompletionRequestMessageArgs::default()
+        .role(role)
+        .name(name)
+        .content(content)
+        .build()
+        .unwrap()
 }
 
 pub struct Func {
