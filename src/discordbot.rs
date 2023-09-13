@@ -48,7 +48,7 @@ impl EventHandler for DiscordHandler {
             get_message_history(&msg, &get_bot_user(&ctx).await.unwrap().unwrap(), &ctx)
                 .await
                 .unwrap()
-                .unwrap(),
+                .unwrap_or_default(),
             &msg,
             &ctx,
         )
@@ -173,13 +173,13 @@ async fn process_chat(
     message_history_text: String,
 ) -> anyhow::Result<()> {
     // Get current date and time in DD/MM/YYYY and HH:MM:SS format
-    let date = Local::now().format("%d/%m/%Y").to_string();
+    let date = Local::now().format("%d-%m-%Y").to_string();
     let time = Local::now().format("%H:%M").to_string();
 
     let mut chat_query: Vec<ChatCompletionRequestMessage> = Vec::new();
     chat_query.push(create_chat_completion_request_message(
         Role::System,
-        "System Message",
+        "Context",
         &format!("You are media management assistant called CineMatic, enthusiastic, knowledgeable and passionate about all things media\nYou always run lookups to ensure correct id, do not rely on chat history, if the data you have received does not contain what you need you reply with the truthful answer of unknown, responses should all be on one line (with comma separation) and compact language, use emojis to express emotion to the user. The current date is {date}, the current time is {time}"),
     ));
 
