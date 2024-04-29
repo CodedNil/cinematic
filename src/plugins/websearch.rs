@@ -62,7 +62,7 @@ async fn brave(query: String) -> anyhow::Result<SearchBrave> {
         // If json has ["results"][0]["text"] then use that as the summary
         if !json["results"][0]["text"].is_null() {
             let text = json["results"][0]["text"].as_str().unwrap_or("No summary");
-            let regex = Regex::new(r#"<[^>]*>"#).unwrap();
+            let regex = Regex::new(r"<[^>]*>").unwrap();
             summary = Some(regex.replace_all(text, "").to_string());
         }
     }
@@ -200,7 +200,7 @@ async fn ai_search(query: String) -> anyhow::Result<String> {
     }
 
     // Search with gpt through the blob to answer the query
-    let response = apis::gpt_info_query("gpt-3.5-turbo".to_string(), blob, format!("Your answers should be on one line and compact with lists having comma separations, recently published articles should get priority, answer verbosely with the question included in the answer\nBased on the given information and only this information, {query}")).await;
+    let response = apis::gpt_info_query("gpt-4-turbo".to_string(), blob, format!("Your answers should be on one line and compact with lists having comma separations, recently published articles should get priority, answer verbosely with the question included in the answer\nBased on the given information and only this information, {query}")).await;
     // Return from errors
     if response.is_err() {
         return Err(anyhow!("Couldn't find an answer"));

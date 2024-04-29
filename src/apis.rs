@@ -1,6 +1,7 @@
 use anyhow::Context;
 use async_openai::types::{
-    ChatCompletionRequestMessageArgs, CreateChatCompletionRequestArgs, Role,
+    ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs,
+    CreateChatCompletionRequestArgs,
 };
 use async_openai::Client as OpenAiClient;
 use reqwest::{Client, Method};
@@ -59,7 +60,7 @@ pub async fn user_name_from_id(user_id: &String, user_name_dirty: &str) -> anyho
         } else {
             // Convert name to plaintext alphanumeric only with gpt
             let response = gpt_info_query(
-                "gpt-4".to_string(),
+                "gpt-4-turbo".to_string(),
                 user_name_dirty.to_string(),
                 "Convert the above name to plaintext alphanumeric only, if it is already alphanumeric just return the name".to_string(),
             )
@@ -88,16 +89,16 @@ pub async fn gpt_info_query(model: String, data: String, prompt: String) -> Resu
     let request = CreateChatCompletionRequestArgs::default()
         .model(model)
         .messages([
-            ChatCompletionRequestMessageArgs::default()
-                .role(Role::System)
+            ChatCompletionRequestSystemMessageArgs::default()
                 .content(data)
                 .build()
-                .unwrap(),
-            ChatCompletionRequestMessageArgs::default()
-                .role(Role::User)
+                .unwrap()
+                .into(),
+            ChatCompletionRequestUserMessageArgs::default()
                 .content(prompt)
                 .build()
-                .unwrap(),
+                .unwrap()
+                .into(),
         ])
         .build()
         .unwrap();

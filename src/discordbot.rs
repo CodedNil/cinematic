@@ -1,14 +1,17 @@
 use crate::{apis, plugins};
 use anyhow::{anyhow, Context};
 use async_openai::types::{
-    ChatCompletionFunctions, ChatCompletionFunctionsArgs, ChatCompletionRequestMessage,
-    ChatCompletionRequestMessageArgs, CreateChatCompletionRequestArgs, Role,
+    ChatCompletionRequestFunctionMessageArgs, ChatCompletionRequestMessage,
+    ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs,
+    ChatCompletionTool, ChatCompletionToolArgs, ChatCompletionToolChoiceOption,
+    ChatCompletionToolType, CreateChatCompletionRequestArgs, FunctionObjectArgs, Role,
 };
 use chrono::Local;
 use futures::Future;
 use regex::Regex;
 use serde_json::json;
 use serenity::{
+    all::EditMessage,
     async_trait,
     model::{channel::Message as DiscordMessage, gateway::Ready, user::CurrentUser},
     prelude::{Context as DiscordContext, EventHandler},
@@ -137,7 +140,7 @@ async fn process_and_reply(
     )
     .context("Unable to parse JSON data")?;
     #[allow(clippy::cast_possible_truncation)]
-    let index = (msg.id.0 as usize) % reply_messages.len();
+    let index = (msg.id.get() as usize) % reply_messages.len();
     let reply_text = &reply_messages[index];
 
     // Send a reply message to the user
@@ -165,6 +168,7 @@ async fn process_and_reply(
 }
 
 /// Process the chat message from the user
+#[allow(clippy::too_many_lines)]
 async fn process_chat(
     user_name: String,
     users_text: String,
@@ -187,7 +191,7 @@ async fn process_chat(
     if let Some(last_newline) = message_history_text.rfind('\n') {
         chat_query.push(create_chat_completion_request_message(
             Role::System,
-            "Message History",
+            "MessageHistory",
             &format!(
                 "Message history:\n{}",
                 message_history_text[..last_newline]
@@ -209,9 +213,9 @@ async fn process_chat(
     let mut final_response: String = String::new();
 
     for _ in 0..MAX_FUNCTION_CALLS {
-        let chat_completitions = get_functions()
+        let chat_tools = get_functions()
             .iter()
-            .map(func_to_chat_completion)
+            .map(func_to_chat_tool)
             .collect::<Vec<_>>();
 
         let response_message = async_openai::Client::new()
@@ -219,63 +223,66 @@ async fn process_chat(
             .create(
                 CreateChatCompletionRequestArgs::default()
                     .max_tokens(512u16)
-                    .model("gpt-4")
+                    .model("gpt-4-turbo")
                     .messages(chat_query.clone())
-                    .functions(chat_completitions)
-                    .function_call("auto")
+                    .tools(chat_tools)
+                    .tool_choice(ChatCompletionToolChoiceOption::Auto)
                     .build()?,
             )
             .await?
             .choices
-            .get(0)
+            .first()
             .unwrap()
             .message
             .clone();
 
-        if let Some(function_call) = response_message.function_call {
-            let function_name = function_call.name;
-            let function_args: serde_json::Value = function_call.arguments.parse()?;
+        if let Some(tool_calls) = response_message.tool_calls {
+            for tool_call in tool_calls {
+                let function_name = tool_call.function.name;
+                let function_args: serde_json::Value = tool_call.function.arguments.parse()?;
 
-            // Edit the discord message with function call in progress
-            edit_bot_message(
-                &ctx,
-                &mut bot_message,
-                format!("{message_history_text}{extra_history_text}⌛ Running function {function_name} with arguments {function_args}"),
-            )
-            .await?;
+                // Edit the discord message with function call in progress
+                edit_bot_message(
+                    &ctx,
+                    &mut bot_message,
+                    format!("{message_history_text}{extra_history_text}⌛ Running function {function_name} with arguments {function_args}"),
+                )
+                .await?;
 
-            // Get function response as string if either ok or error
-            let function_response =
-                run_function(function_name.clone(), function_args, &user_name).await;
-            let function_response_message = function_response.unwrap_or_else(|e| e.to_string());
+                // Get function response as string if either ok or error
+                let function_response =
+                    run_function(function_name.clone(), function_args, &user_name).await;
+                let function_response_message = function_response.unwrap_or_else(|e| e.to_string());
 
-            // Truncate the function response to 100 characters
-            let function_response_short = if function_response_message.len() > 150 {
-                let trimmed_message = function_response_message
-                    .chars()
-                    .take(150)
-                    .collect::<String>();
-                format!("{trimmed_message}...")
-            } else {
-                function_response_message.clone()
-            };
+                // Truncate the function response to 100 characters
+                let function_response_short = if function_response_message.len() > 150 {
+                    let trimmed_message = function_response_message
+                        .chars()
+                        .take(150)
+                        .collect::<String>();
+                    format!("{trimmed_message}...")
+                } else {
+                    function_response_message.clone()
+                };
 
-            // Edit the discord message with function call results
-            extra_history_text.push_str(
-                format!("🎬 Ran function {function_name} {function_response_short}\n",).as_str(),
-            );
-            edit_bot_message(
-                &ctx,
-                &mut bot_message,
-                format!("{message_history_text}{extra_history_text}"),
-            )
-            .await?;
+                // Edit the discord message with function call results
+                extra_history_text.push_str(
+                    format!("🎬 Ran function {function_name} {function_response_short}\n",)
+                        .as_str(),
+                );
+                edit_bot_message(
+                    &ctx,
+                    &mut bot_message,
+                    format!("{message_history_text}{extra_history_text}"),
+                )
+                .await?;
 
-            chat_query.push(create_chat_completion_request_message(
-                Role::Function,
-                &function_name,
-                &function_response_message,
-            ));
+                chat_query.push(create_chat_completion_request_message(
+                    Role::Function,
+                    &function_name,
+                    &function_response_message,
+                ));
+            }
         } else {
             final_response = response_message.content.unwrap();
             break;
@@ -299,7 +306,8 @@ async fn edit_bot_message(
     message: &mut DiscordMessage,
     content: String,
 ) -> anyhow::Result<()> {
-    message.edit(&ctx.http, |msg| msg.content(content)).await?;
+    let builder = EditMessage::new().content(content);
+    message.edit(&ctx.http, builder).await?;
     Ok(())
 }
 
@@ -309,14 +317,30 @@ fn create_chat_completion_request_message(
     name: &str,
     content: &str,
 ) -> ChatCompletionRequestMessage {
-    ChatCompletionRequestMessageArgs::default()
-        .role(role)
-        .name(name)
-        .content(content)
-        .build()
-        .unwrap()
+    match role {
+        Role::User => ChatCompletionRequestUserMessageArgs::default()
+            .name(name)
+            .content(content)
+            .build()
+            .unwrap()
+            .into(),
+        Role::System => ChatCompletionRequestSystemMessageArgs::default()
+            .name(name)
+            .content(content)
+            .build()
+            .unwrap()
+            .into(),
+        Role::Function => ChatCompletionRequestFunctionMessageArgs::default()
+            .name(name)
+            .content(content)
+            .build()
+            .unwrap()
+            .into(),
+        _ => panic!("Invalid role"),
+    }
 }
 
+#[allow(clippy::struct_field_names)]
 pub struct Func {
     name: String,
     description: String,
@@ -413,7 +437,7 @@ where
     Box::pin(fut)
 }
 
-fn func_to_chat_completion(func: &Func) -> ChatCompletionFunctions {
+fn func_to_chat_tool(func: &Func) -> ChatCompletionTool {
     let properties: serde_json::Map<String, _> = func
         .parameters
         .iter()
@@ -427,14 +451,20 @@ fn func_to_chat_completion(func: &Func) -> ChatCompletionFunctions {
         .map(|param| param.name.clone())
         .collect();
 
-    ChatCompletionFunctionsArgs::default()
-        .name(&func.name)
-        .description(&func.description)
-        .parameters(json!({
-            "type": "object",
-            "properties": properties,
-            "required": required,
-        }))
+    ChatCompletionToolArgs::default()
+        .r#type(ChatCompletionToolType::Function)
+        .function(
+            FunctionObjectArgs::default()
+                .name(&func.name)
+                .description(&func.description)
+                .parameters(json!({
+                    "type": "object",
+                    "properties": properties,
+                    "required": required,
+                }))
+                .build()
+                .unwrap(),
+        )
         .build()
         .unwrap()
 }

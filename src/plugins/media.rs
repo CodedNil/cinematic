@@ -156,7 +156,7 @@ fn get_format(args: &HashMap<String, String>) -> Format {
 /// Query with GPT to get relevant responses.
 async fn query_with_gpt(media_string: String, query: String) -> anyhow::Result<String> {
     let response = apis::gpt_info_query(
-        "gpt-3.5-turbo-16k".to_string(),
+        "gpt-4-turbo".to_string(),
         media_string,
         format!("Using very concise language and in a single line response (comma separated if outputting a list)\nBased on the given information and only this information give your best answer to, {query}"),
     )
