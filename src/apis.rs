@@ -60,7 +60,6 @@ pub async fn user_name_from_id(user_id: &String, user_name_dirty: &str) -> anyho
         } else {
             // Convert name to plaintext alphanumeric only with gpt
             let response = gpt_info_query(
-                "gpt-4-turbo".to_string(),
                 user_name_dirty.to_string(),
                 "Convert the above name to plaintext alphanumeric only, if it is already alphanumeric just return the name".to_string(),
             )
@@ -85,9 +84,9 @@ pub async fn user_name_from_id(user_id: &String, user_name_dirty: &str) -> anyho
 }
 
 /// Use gpt to query information
-pub async fn gpt_info_query(model: String, data: String, prompt: String) -> Result<String, String> {
+pub async fn gpt_info_query(data: String, prompt: String) -> Result<String, String> {
     let request = CreateChatCompletionRequestArgs::default()
-        .model(model)
+        .model("gpt-4o")
         .messages([
             ChatCompletionRequestSystemMessageArgs::default()
                 .content(data)

@@ -156,9 +156,8 @@ fn get_format(args: &HashMap<String, String>) -> Format {
 /// Query with GPT to get relevant responses.
 async fn query_with_gpt(media_string: String, query: String) -> anyhow::Result<String> {
     let response = apis::gpt_info_query(
-        "gpt-4-turbo".to_string(),
         media_string,
-        format!("Using very concise language and in a single line response (comma separated if outputting a list)\nBased on the given information and only this information give your best answer to, {query}"),
+        format!("Using very concise language and in a single line response (comma separated if outputting a list), incorporating the query in the response\nBased on the given information and only this information give your best answer to, {query}"),
     )
     .await
     .unwrap_or_default();
@@ -876,15 +875,16 @@ async fn media_to_plain_english(
         }
         // Get movie file info
         if matches!(media_type, Format::Movie) && output_details.file_details {
-            if item["hasFile"].as_bool().unwrap_or(false) {
-                result.push(format!(
-                    "file size {}",
-                    sizeof_fmt(item["sizeOnDisk"].as_f64().unwrap())
-                ));
-                if let Some(resolution) = item["movieFile"]["mediaInfo"]["resolution"].as_str() {
-                    result.push(format!("file resolution {resolution}"));
+            if let Some(movie_file) = item["movieFile"].as_object() {
+                if let Some(size_on_disk) = movie_file["size"].as_f64() {
+                    result.push(format!("file size {}", sizeof_fmt(size_on_disk)));
                 }
-                if let Some(edition) = item["movieFile"]["edition"].as_str() {
+                if let Some(media_info) = movie_file["mediaInfo"].as_object() {
+                    if let Some(resolution) = media_info["resolution"].as_str() {
+                        result.push(format!("file resolution {resolution}"));
+                    }
+                }
+                if let Some(edition) = movie_file["edition"].as_str() {
                     if !edition.is_empty() {
                         result.push(format!("file edition {edition}"));
                     }

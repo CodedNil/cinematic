@@ -200,7 +200,7 @@ async fn ai_search(query: String) -> anyhow::Result<String> {
     }
 
     // Search with gpt through the blob to answer the query
-    let response = apis::gpt_info_query("gpt-4-turbo".to_string(), blob, format!("Your answers should be on one line and compact with lists having comma separations, recently published articles should get priority, answer verbosely with the question included in the answer\nBased on the given information and only this information, {query}")).await;
+    let response = apis::gpt_info_query(blob, format!("Your answers should be on one line and compact with lists having comma separations, recently published articles should get priority, answer verbosely with the question included in the answer\nBased on the given information and only this information, {query}")).await;
     // Return from errors
     if response.is_err() {
         return Err(anyhow!("Couldn't find an answer"));

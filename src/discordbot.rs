@@ -1,10 +1,10 @@
 use crate::{apis, plugins};
 use anyhow::{anyhow, Context};
 use async_openai::types::{
-    ChatCompletionRequestFunctionMessageArgs, ChatCompletionRequestMessage,
-    ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs,
-    ChatCompletionTool, ChatCompletionToolArgs, ChatCompletionToolChoiceOption,
-    ChatCompletionToolType, CreateChatCompletionRequestArgs, FunctionObjectArgs, Role,
+    ChatCompletionRequestMessage, ChatCompletionRequestSystemMessageArgs,
+    ChatCompletionRequestUserMessageArgs, ChatCompletionTool, ChatCompletionToolArgs,
+    ChatCompletionToolChoiceOption, ChatCompletionToolType, CreateChatCompletionRequestArgs,
+    FunctionObjectArgs, Role,
 };
 use chrono::Local;
 use futures::Future;
@@ -21,7 +21,7 @@ use std::{collections::HashMap, pin::Pin};
 /// How long a thread of replies can be
 const MAX_THREAD_LIMIT: usize = 3;
 /// How many function calls can be made
-const MAX_FUNCTION_CALLS: usize = 10;
+const MAX_FUNCTION_CALLS: usize = 4;
 
 pub struct DiscordHandler;
 
@@ -184,7 +184,7 @@ async fn process_chat(
     chat_query.push(create_chat_completion_request_message(
         Role::System,
         "Context",
-        &format!("You are media management assistant called CineMatic, enthusiastic, knowledgeable and passionate about all things media\nYou always run lookups to ensure correct id, do not rely on chat history, if the data you have received does not contain what you need you reply with the truthful answer of unknown, responses should all be on one line (with comma separation) and compact language, use emojis to express emotion to the user. The current date is {date}, the current time is {time}"),
+        &format!("You are media management assistant called CineMatic, enthusiastic, knowledgeable and passionate about all things media\nYou always run lookups to ensure correct id, do not rely on chat history, if the data you have received does not contain what you need you reply with the truthful answer of unknown, responses should all be on one line (with comma separation) and compact language, use emojis to express emotion to the user. The current date is {date}, the current time is {time}."),
     ));
 
     // If it contains a \n then it has history
@@ -212,21 +212,28 @@ async fn process_chat(
     let mut extra_history_text: String = String::new();
     let mut final_response: String = String::new();
 
-    for _ in 0..MAX_FUNCTION_CALLS {
+    for func_n in 0..MAX_FUNCTION_CALLS {
         let chat_tools = get_functions()
             .iter()
             .map(func_to_chat_tool)
             .collect::<Vec<_>>();
 
+        let tool_choice = if func_n == MAX_FUNCTION_CALLS - 1 {
+            ChatCompletionToolChoiceOption::None
+        } else {
+            ChatCompletionToolChoiceOption::Auto
+        };
+
+        println!("QUERY {chat_query:?}");
+
         let response_message = async_openai::Client::new()
             .chat()
             .create(
                 CreateChatCompletionRequestArgs::default()
-                    .max_tokens(512u16)
-                    .model("gpt-4-turbo")
+                    .model("gpt-4o")
                     .messages(chat_query.clone())
                     .tools(chat_tools)
-                    .tool_choice(ChatCompletionToolChoiceOption::Auto)
+                    .tool_choice(tool_choice)
                     .build()?,
             )
             .await?
@@ -251,7 +258,7 @@ async fn process_chat(
 
                 // Get function response as string if either ok or error
                 let function_response =
-                    run_function(function_name.clone(), function_args, &user_name).await;
+                    run_function(function_name.clone(), &function_args, &user_name).await;
                 let function_response_message = function_response.unwrap_or_else(|e| e.to_string());
 
                 // Truncate the function response to 100 characters
@@ -278,9 +285,11 @@ async fn process_chat(
                 .await?;
 
                 chat_query.push(create_chat_completion_request_message(
-                    Role::Function,
-                    &function_name,
-                    &function_response_message,
+                    Role::System,
+                    "tool_response",
+                    &format!(
+                        "Function {function_response_message} returned {function_response_message}"
+                    ),
                 ));
             }
         } else {
@@ -325,12 +334,6 @@ fn create_chat_completion_request_message(
             .unwrap()
             .into(),
         Role::System => ChatCompletionRequestSystemMessageArgs::default()
-            .name(name)
-            .content(content)
-            .build()
-            .unwrap()
-            .into(),
-        Role::Function => ChatCompletionRequestFunctionMessageArgs::default()
             .name(name)
             .content(content)
             .build()
@@ -407,7 +410,7 @@ fn get_functions() -> Vec<Func> {
 /// Run function
 async fn run_function(
     name: String,
-    args: serde_json::Value,
+    args: &serde_json::Value,
     user_name: &str,
 ) -> anyhow::Result<String> {
     let functions = get_functions();

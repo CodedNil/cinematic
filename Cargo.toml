@@ -11,15 +11,15 @@ categories = ["discord-bot", "media-library", "utilities"]
 
 [dependencies]
 dotenv = "0.15.0"
-anyhow = "1.0.82"
-async-openai = "0.20.0"
+anyhow = "1.0.83"
+async-openai = "0.21.0"
 chrono = "0.4.38"
 futures = "0.3.30"
 regex = "1.10.4"
 reqwest = { version = "0.12.4", features = ["json"] }
 scraper = "0.19.0"
-serde = "1.0.199"
-serde_json = "1.0.116"
+serde = "1.0.201"
+serde_json = "1.0.117"
 serenity = { version = "0.12.1", default-features = false, features = [
     "client",
     "gateway",
