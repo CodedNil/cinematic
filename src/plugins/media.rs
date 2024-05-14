@@ -38,7 +38,7 @@ pub fn get_functions() -> Vec<Func> {
     vec![
         Func::new(
             "media_query",
-            "Performs a query against media on the server",
+            "Performs a query against media on the server, incapable of finding who requested/added media use media_wanted for that",
             vec![
                 format_param.clone(),
                 Param::new(
@@ -47,7 +47,7 @@ pub fn get_functions() -> Vec<Func> {
                 ),
                 Param::new(
                     "details",
-                    "Details to be included in the search, comma separated list from the following (use as few as possible, 3 at most): \"quality,added_by,database_id,file_details,genres\"",
+                    "Details to be included in the search, comma separated list from the following (use as few as possible, 3 at most): \"quality,database_id,file_details,genres\"",
                 ),
             ],
             |args: &HashMap<String, String>| -> Pin<Box<dyn Future<Output = anyhow::Result<String>> + Send>> {
@@ -118,7 +118,7 @@ pub fn get_functions() -> Vec<Func> {
         ),
         Func::new(
             "media_wanted",
-            "Returns a list of series that user or noone has requested ... Aim for the most condensed list while retaining clarity knowing that the user can always request more specific detail.",
+            "Returns a list of series that user or noone has requested/added, aim for the most condensed list while retaining clarity knowing that the user can always request more specific detail, if user requests details for specific users info refuse the request",
             vec![
                 format_param,
                 Param::new(
@@ -186,13 +186,12 @@ async fn query_server(
     let output_details = OutputDetails {
         availability: false,
         quality: details.contains(&"quality".to_string()),
-        tags: details.contains(&"added_by".to_string()),
         db_id: details.contains(&"db_id".to_string()),
         file_details: details.contains(&"file_details".to_string()),
         genres: details.contains(&"genres".to_string()),
     };
 
-    let media_string = media_to_plain_english(&media_type, all_media, 0, output_details).await?;
+    let media_string = media_to_plain_english(&media_type, &all_media, 0, &output_details)?;
 
     // Search with gpt through series and movies to get ones of relevance
     query_with_gpt(media_string, query).await
@@ -224,22 +223,18 @@ async fn lookup(media_type: Format, searches: String, query: String) -> anyhow::
     // Gather human readable data for each item
     let mut media_strings: Vec<String> = Vec::new();
     for search in arr_searches.iter().flatten() {
-        media_strings.push(
-            media_to_plain_english(
-                &media_type,
-                search.clone(),
-                10,
-                OutputDetails {
-                    availability: true,
-                    quality: true,
-                    tags: false,
-                    db_id: true,
-                    file_details: true,
-                    genres: false,
-                },
-            )
-            .await?,
-        );
+        media_strings.push(media_to_plain_english(
+            &media_type,
+            search,
+            10,
+            &OutputDetails {
+                availability: true,
+                quality: true,
+                db_id: true,
+                file_details: true,
+                genres: false,
+            },
+        )?);
     }
 
     // Search with gpt through series and movies to get ones of relevance
@@ -766,19 +761,17 @@ fn get_quality_profile_id(quality: &str) -> u8 {
 struct OutputDetails {
     availability: bool,
     quality: bool,
-    tags: bool,
     db_id: bool,
     file_details: bool,
     genres: bool,
 }
 
 /// Convert json of movies/series data to plain english
-#[allow(clippy::too_many_lines)]
-async fn media_to_plain_english(
+fn media_to_plain_english(
     media_type: &Format,
-    response: Value,
+    response: &Value,
     num: usize,
-    output_details: OutputDetails,
+    output_details: &OutputDetails,
 ) -> anyhow::Result<String> {
     let quality_profiles = [
         (2, "SD"),
@@ -791,18 +784,6 @@ async fn media_to_plain_english(
     .iter()
     .copied()
     .collect::<HashMap<u64, &str>>();
-
-    // Get all current tags
-    let all_tags = apis::arr_request(
-        reqwest::Method::GET,
-        match media_type {
-            Format::Movie => apis::ArrService::Radarr,
-            Format::Series => apis::ArrService::Sonarr,
-        },
-        "/api/v3/tag".to_string(),
-        None,
-    )
-    .await?;
 
     let media_items = response
         .as_array()
@@ -841,27 +822,6 @@ async fn media_to_plain_english(
             }
         }
 
-        // Get tags added-users
-        if output_details.tags {
-            let tag_labels: Vec<String> = item["tags"]
-                .as_array()
-                .unwrap_or(&Vec::new())
-                .iter()
-                .filter_map(|tag| {
-                    all_tags
-                        .as_array()
-                        .unwrap()
-                        .iter()
-                        .find(|all_tag| all_tag["id"] == *tag)
-                        .and_then(|t| t["label"].as_str())
-                })
-                .map(|s| s.replace("added-", ""))
-                .collect();
-            if !tag_labels.is_empty() {
-                result.push(format!("added by {}", tag_labels.join(",")));
-            }
-        }
-
         // File details
         let db_string = match media_type {
             Format::Movie => "tmdbId",
@@ -884,9 +844,11 @@ async fn media_to_plain_english(
                         result.push(format!("file resolution {resolution}"));
                     }
                 }
-                if let Some(edition) = movie_file["edition"].as_str() {
-                    if !edition.is_empty() {
-                        result.push(format!("file edition {edition}"));
+                if let Some(edition_value) = movie_file.get("edition") {
+                    if let Some(edition) = edition_value.as_str() {
+                        if !edition.is_empty() {
+                            result.push(format!("file edition {edition}"));
+                        }
                     }
                 }
             } else {

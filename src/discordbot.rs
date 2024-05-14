@@ -224,8 +224,6 @@ async fn process_chat(
             ChatCompletionToolChoiceOption::Auto
         };
 
-        println!("QUERY {chat_query:?}");
-
         let response_message = async_openai::Client::new()
             .chat()
             .create(
