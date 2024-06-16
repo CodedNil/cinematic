@@ -11,20 +11,20 @@ categories = ["discord-bot", "media-library", "utilities"]
 
 [dependencies]
 dotenv = "0.15.0"
-anyhow = "1.0.83"
-async-openai = "0.21.0"
+anyhow = "1.0.86"
+async-openai = "0.23.2"
 chrono = "0.4.38"
 futures = "0.3.30"
-regex = "1.10.4"
+regex = "1.10.5"
 reqwest = { version = "0.12.4", features = ["json"] }
 scraper = "0.19.0"
-serde = "1.0.201"
+serde = "1.0.203"
 serde_json = "1.0.117"
-serenity = { version = "0.12.1", default-features = false, features = [
+serenity = { version = "0.12.2", default-features = false, features = [
     "client",
     "gateway",
     "rustls_backend",
     "model",
 ] }
-tokio = { version = "1.37.0", features = ["macros", "rt-multi-thread"] }
-toml = "0.8.12"
+tokio = { version = "1.38.0", features = ["macros", "rt-multi-thread"] }
+toml = "0.8.14"

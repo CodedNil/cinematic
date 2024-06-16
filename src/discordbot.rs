@@ -212,6 +212,9 @@ async fn process_chat(
     let mut extra_history_text: String = String::new();
     let mut final_response: String = String::new();
 
+    // Add users message to extra_history_text
+    extra_history_text.push_str(format!("💬 {user_name}: {users_text}\n",).as_str());
+
     for func_n in 0..MAX_FUNCTION_CALLS {
         let chat_tools = get_functions()
             .iter()
