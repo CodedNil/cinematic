@@ -139,7 +139,6 @@ async fn process_and_reply(
         &std::fs::read_to_string("reply_messages.json").context("Unable to read file")?,
     )
     .context("Unable to parse JSON data")?;
-    #[allow(clippy::cast_possible_truncation)]
     let index = (msg.id.get() as usize) % reply_messages.len();
     let reply_text = &reply_messages[index];
 
@@ -168,7 +167,6 @@ async fn process_and_reply(
 }
 
 /// Process the chat message from the user
-#[allow(clippy::too_many_lines)]
 async fn process_chat(
     user_name: String,
     users_text: String,
@@ -231,7 +229,7 @@ async fn process_chat(
             .chat()
             .create(
                 CreateChatCompletionRequestArgs::default()
-                    .model("gpt-4o")
+                    .model("gpt-4o-mini")
                     .messages(chat_query.clone())
                     .tools(chat_tools)
                     .tool_choice(tool_choice)
@@ -344,7 +342,6 @@ fn create_chat_completion_request_message(
     }
 }
 
-#[allow(clippy::struct_field_names)]
 pub struct Func {
     name: String,
     description: String,

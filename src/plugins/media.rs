@@ -22,7 +22,6 @@ impl std::fmt::Display for Format {
 }
 
 /// Get available functions
-#[allow(clippy::too_many_lines)]
 pub fn get_functions() -> Vec<Func> {
     // Common parameters for the functions
     let format_param = Param::new("format", "The format of the media to be searched for")
@@ -757,7 +756,6 @@ fn get_quality_profile_id(quality: &str) -> u8 {
 }
 
 #[derive(Debug, Clone)]
-#[allow(clippy::struct_excessive_bools)]
 struct OutputDetails {
     availability: bool,
     quality: bool,

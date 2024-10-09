@@ -86,7 +86,7 @@ pub async fn user_name_from_id(user_id: &String, user_name_dirty: &str) -> anyho
 /// Use gpt to query information
 pub async fn gpt_info_query(data: String, prompt: String) -> Result<String, String> {
     let request = CreateChatCompletionRequestArgs::default()
-        .model("gpt-4o")
+        .model("gpt-4o-mini")
         .messages([
             ChatCompletionRequestSystemMessageArgs::default()
                 .content(data)
