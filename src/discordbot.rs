@@ -11,7 +11,7 @@ use futures::Future;
 use regex::Regex;
 use serde_json::json;
 use serenity::{
-    all::EditMessage,
+    all::{EditMessage, Mentionable, UserId},
     async_trait,
     model::{channel::Message as DiscordMessage, gateway::Ready, user::CurrentUser},
     prelude::{Context as DiscordContext, EventHandler},
@@ -135,33 +135,37 @@ async fn process_and_reply(
     );
 
     // Choose a random reply message
-    let reply_messages: Vec<String> = serde_json::from_str(
-        &std::fs::read_to_string("reply_messages.json").context("Unable to read file")?,
-    )
-    .context("Unable to parse JSON data")?;
-    let index = (msg.id.get() as usize) % reply_messages.len();
-    let reply_text = &reply_messages[index];
+    // let reply_messages: Vec<String> = serde_json::from_str(
+    //     &std::fs::read_to_string("reply_messages.json").context("Unable to read file")?,
+    // )
+    // .context("Unable to parse JSON data")?;
+    // let index = (msg.id.get() as usize) % reply_messages.len();
+    // let reply_text = &reply_messages[index];
+
+    let assistant_id = UserId::new(270_618_709_867_888_651);
+    let mention = assistant_id.mention();
+    let reply_text = format!("Hey there, I am currently on leave for severe health issues (I've been diagnosed as a complete retard), I appreciate your message and have forwarded it on to my lovely assistant {mention} who will assist you ASAP");
 
     // Send a reply message to the user
-    let bot_message = msg
+    let _bot_message = msg
         .reply(&ctx.http, format!("{message_history_text}⌛ {reply_text}"))
         .await
         .context("Failed to send message")?;
 
-    let ctx_clone = ctx.clone();
+    // let ctx_clone = ctx.clone();
 
-    // Spawn a new thread to process the message further
-    tokio::spawn(async move {
-        process_chat(
-            user_name_cleaned,
-            user_text,
-            ctx_clone,
-            bot_message,
-            message_history_text,
-        )
-        .await
-        .unwrap();
-    });
+    // // Spawn a new thread to process the message further
+    // tokio::spawn(async move {
+    //     process_chat(
+    //         user_name_cleaned,
+    //         user_text,
+    //         ctx_clone,
+    //         bot_message,
+    //         message_history_text,
+    //     )
+    //     .await
+    //     .unwrap();
+    // });
 
     Ok(())
 }
