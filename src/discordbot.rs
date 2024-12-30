@@ -233,7 +233,7 @@ async fn process_chat(
             .chat()
             .create(
                 CreateChatCompletionRequestArgs::default()
-                    .model("gpt-4o-mini")
+                    .model("gpt-4o")
                     .messages(chat_query.clone())
                     .tools(chat_tools)
                     .tool_choice(tool_choice)
